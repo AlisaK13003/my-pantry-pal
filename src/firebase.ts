@@ -1,7 +1,27 @@
-import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeApp } from 'firebase/app';
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence
+} from 'firebase/auth';
+import {
+  getFirestore,
+  collection,
+  addDoc,
+  doc,
+  setDoc,
+  getDocs,
+  query,
+  where,
+  deleteDoc,
+  updateDoc,
+  Timestamp // Import Timestamp for handling date fields
+} from 'firebase/firestore';
 
-// Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyAali0FngChaNv1MpqMDqOFp03lET0ztXg",
   authDomain: "inventory-management-26206.firebaseapp.com",
@@ -12,8 +32,102 @@ const firebaseConfig = {
   measurementId: "G-K6JDJBRGJL"
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const firestore = getFirestore(app);
+export interface InventoryItem {
+  itemId: string;
+  date: Timestamp; // Using Timestamp instead of string for date type
+  type: string;
+  quantity: number;
+}
 
-export { firestore };
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+export const signUp = async (email: string, password: string) => {
+  const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+  const uid = userCredential.user.uid;
+
+  // Create user document in Firestore using Timestamp for date
+  await setDoc(doc(db, 'users', uid), {
+    email: email,
+    createdAt: Timestamp.fromDate(new Date()) // Convert to Timestamp
+  });
+
+  return userCredential;
+};
+
+export const signIn = async (email: string, password: string) => {
+  await setPersistence(auth, browserLocalPersistence);
+  const userCredential = await signInWithEmailAndPassword(auth, email, password);
+  return userCredential;
+};
+
+export const logOut = async () => {
+  await signOut(auth);
+};
+
+function capitalizeWords(input: string): string {
+  return input.toLowerCase().replace(/(?:^|\s)\S/g, function(a) { return a.toUpperCase(); });
+}
+
+
+export const addItemToInventory = async (uid: string, date: Date, type: string, quantity: number) => {
+  const userCollection = collection(db, `users/${uid}/inventory`);
+  const dateAsTimestamp = Timestamp.fromDate(date); // Convert Date to Timestamp
+  const formattedType = capitalizeWords(type); // Capitalize and format the type string
+
+  // Check if an item with the same type already exists
+  const q = query(userCollection, where('type', '==', formattedType));
+  const querySnapshot = await getDocs(q);
+
+  if (!querySnapshot.empty) {
+    // If item exists, update the existing item's quantity
+    const existingItemDoc = querySnapshot.docs[0];
+    const existingItemData = existingItemDoc.data();
+    const newQuantity = existingItemData.quantity + quantity;
+
+    await updateDoc(doc(db, `users/${uid}/inventory/${existingItemDoc.id}`), {
+      quantity: newQuantity,
+      updatedAt: Timestamp.now(), // Use Timestamp here
+      type: formattedType // Ensure type is consistently formatted
+    });
+
+    return;
+  }
+
+  // If item does not exist, add new item with formatted type
+  await addDoc(userCollection, {
+    date: dateAsTimestamp,
+    type: formattedType,
+    quantity
+  });
+};
+
+export const removeItemFromInventory = async (uid: string, itemId: string) => {
+  const itemDoc = doc(db, `users/${uid}/inventory/${itemId}`);
+  await deleteDoc(itemDoc);
+};
+
+export const editItemInInventory = async (uid: string, itemId: string, newType: string, newQuantity: number) => {
+  const itemDoc = doc(db, `users/${uid}/inventory/${itemId}`);
+  await updateDoc(itemDoc, {
+    type: newType,
+    quantity: newQuantity,
+    updatedAt: Timestamp.now() // Use Timestamp here
+  });
+};
+
+export const getUserInventory = async (uid: string): Promise<InventoryItem[]> => {
+  const userCollection = collection(db, `users/${uid}/inventory`);
+  const q = query(userCollection);
+  const querySnapshot = await getDocs(q);
+  const items = querySnapshot.docs.map(doc => ({
+    itemId: doc.id,
+    date: doc.data().date as Timestamp, // Cast to Timestamp
+    type: doc.data().type,
+    quantity: doc.data().quantity,
+  })) as InventoryItem[];
+  return items;
+};
+
+export { auth, db, signOut };

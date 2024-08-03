@@ -15,7 +15,7 @@ const AppFeatures = () => {
   const theme = useTheme();
 
   return (
-    <Box sx={{
+    <Box id="Features" sx={{
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
