@@ -1,4 +1,3 @@
-
 import { OpenAI } from 'openai';
 import { NextApiRequest, NextApiResponse } from 'next';
 import { ChatCompletionCreateParams } from 'openai/resources/index.mjs';
@@ -51,17 +50,24 @@ The recipe doesn't need to include all the items from the pantry. Ensure the res
       throw new Error("No response from OpenAI");
     }
 
-    const result = response.choices[0].message.content;
-    console.log(result);
-    return res.status(200).json({ recipe: JSON.parse(result) });
-
+    try {
+      const result = response.choices[0].message.content;
+      if (result === null) {
+        console.error("Received null content");
+        return res.status(500).json({ error: "Received null content" });
+      } else {
+        console.log(result);
+        return res.status(200).json({ recipe: JSON.parse(result) });
+      }
+    } catch (error: any) {
+      console.error("Error in POST /api/recipe", error);
+      if (error.response) {
+        return res.status(error.response.status).json({ error: error.response.data.error.message });
+      }
+      return res.status(500).json({ error: error.message });
+    }
   } catch (error: any) {
     console.error("Error in POST /api/recipe", error);
-    if (error.response) {
-      // Handling specific OpenAI errors
-      return res.status(error.response.status).json({ error: error.response.data.error.message });
-    }
     return res.status(500).json({ error: error.message });
   }
 }
-

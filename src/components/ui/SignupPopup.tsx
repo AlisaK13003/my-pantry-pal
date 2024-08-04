@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, FormEvent, ChangeEvent } from 'react';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
@@ -10,22 +10,26 @@ import Button from '@mui/material/Button';
 import { useRouter } from 'next/router';
 import { signIn, signUp } from '../../firebase'; // Ensure the path to your firebase config file is correct
 
-function SignInSignUpModal({ open, handleClose }) {
-  const router = useRouter();
-  const [tabValue, setTabValue] = useState(0);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [emailError, setEmailError] = useState('');
-  const [passwordError, setPasswordError] = useState('');
-  const [confirmPasswordError, setConfirmPasswordError] = useState('');
+interface SignInSignUpModalProps {
+  open: boolean;
+  handleClose: () => void;
+}
 
-  const handleSignIn = async (event) => {
+const SignInSignUpModal: React.FC<SignInSignUpModalProps> = ({ open, handleClose }) => {
+  const router = useRouter();
+  const [tabValue, setTabValue] = useState<number>(0);
+  const [email, setEmail] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
+  const [confirmPassword, setConfirmPassword] = useState<string>('');
+  const [emailError, setEmailError] = useState<string>('');
+  const [passwordError, setPasswordError] = useState<string>('');
+  const [confirmPasswordError, setConfirmPasswordError] = useState<string>('');
+
+  const handleSignIn = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setEmailError('');
     setPasswordError('');
   
-    // Move validation inside the submit function
     if (!email) {
       setEmailError('Email is required');
       return;
@@ -38,9 +42,8 @@ function SignInSignUpModal({ open, handleClose }) {
     try {
       await signIn(email, password);
       console.log('Sign in successful');
-      // Optional: redirect to another route
       router.push('/inventory');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Sign in failed', error);
       switch (error.code) {
         case 'auth/invalid-email':
@@ -56,7 +59,7 @@ function SignInSignUpModal({ open, handleClose }) {
     }
   };
   
-  const handleSignUp = async (event) => {
+  const handleSignUp = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setEmailError('');
     setPasswordError('');
@@ -82,9 +85,8 @@ function SignInSignUpModal({ open, handleClose }) {
     try {
       await signUp(email, password);
       console.log('Sign up successful');
-      // Optional: redirect to another route
       router.push('/inventory');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Sign up failed', error);
       switch (error.code) {
         case 'auth/email-already-in-use':
@@ -102,12 +104,9 @@ function SignInSignUpModal({ open, handleClose }) {
       }
     }
   };
-  
-  
 
-  const handleTabChange = (event, newValue) => {
+  const handleTabChange = (event: ChangeEvent<{}>, newValue: number) => {
     setTabValue(newValue);
-    // Clear all error messages when switching tabs
     setEmailError('');
     setPasswordError('');
     setConfirmPasswordError('');
