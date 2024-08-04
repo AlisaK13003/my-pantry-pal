@@ -1,3 +1,4 @@
+
 import { OpenAI } from 'openai';
 import { NextApiRequest, NextApiResponse } from 'next';
 import { ChatCompletionCreateParams } from 'openai/resources/index.mjs';
@@ -19,14 +20,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       throw new Error("pantry_items is required and should be a non-empty array");
     }
 
-    const formattedPantryItems = pantry_items.map(item => `${item.type},${item.quantity}`).join('; ');
+    const formattedPantryItems = pantry_items.map(item => `${item.name},${item.quantity},${item.expirationDate}`).join('; ');
 
     const payload: ChatCompletionCreateParams = {
       model: "gpt-3.5-turbo",
       messages: [
         {
           role: "user",
-          content: `Here is a list of pantry items and their quantities: ${formattedPantryItems}. Please generate a simple and tasty recipe that can be made using some of these ingredients. The recipe doesn't need to include all the items from the pantry.`
+          content: `
+Here is a list of pantry items: ${formattedPantryItems}.
+Please generate a simple and tasty recipe that can be made using this list. 
+The recipe doesn't need to include all the items from the pantry. Ensure the response follows this JSON format and ensure its a json string.:
+{
+  "id": "",
+  "title": "",
+  "ingredients": [""],
+  "directions": "",
+  "suggestions": "",
+  "imageUrl": ""
+}
+`
         }
       ],
       max_tokens: 150
@@ -39,10 +52,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const result = response.choices[0].message.content;
-    return res.status(200).json({ recipes: result });
+    console.log(result);
+    return res.status(200).json({ recipe: JSON.parse(result) });
 
   } catch (error: any) {
-    console.error("Error in POST /api/generate-recipes:", error);
+    console.error("Error in POST /api/recipe", error);
     if (error.response) {
       // Handling specific OpenAI errors
       return res.status(error.response.status).json({ error: error.response.data.error.message });
@@ -50,3 +64,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: error.message });
   }
 }
+

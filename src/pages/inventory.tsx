@@ -26,7 +26,7 @@ interface Recipe {
 }
 
 const Inventory = () => {
-  const formatDate = (date) => {
+  const formatDate = (date:any) => {
     if (!date || !date.seconds) {
       console.error('Invalid date:', date);
       return ''; // Return an empty string or some default date
@@ -69,7 +69,7 @@ const Inventory = () => {
     return () => unsubscribe();
   }, []);
 
-  const loadInventory = async (uid) => {
+  const loadInventory = async (uid:any) => {
     const inventoryItems = await getUserInventory(uid);
     setItems(inventoryItems.map(item => ({
       id: item.itemId,
@@ -173,18 +173,38 @@ const Inventory = () => {
     alert('Upload functionality not implemented yet.');
   };
 
-  const handleRecipeIdeas = () => {
-    // Dummy implementation for generating recipe ideas
-    const dummyRecipe: Recipe = {
-      id: Date.now(),
-      title: 'Sample Recipe',
-      ingredients: ['1 cup of rice', '2 cups of water'],
-      directions: 'Cook the rice with water.',
-      suggestions: 'Serve with vegetables.',
-      imageUrl: '', // No actual image URL provided
-    };
 
-    setRecipes(prevRecipes => [...prevRecipes, dummyRecipe]);
+
+
+  const handleRecipeIdeas = async () => {
+    try {
+      const response = await fetch('/api/recipe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ pantry_items: items }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        const newRecipe = {
+          id: result.recipe.id,
+          title: result.recipe.title,
+          ingredients: result.recipe.ingredients,
+          directions: result.recipe.directions,
+          suggestions: result.recipe.suggestions,
+          imageUrl: result.recipe.imageUrl || '', // Handle optional image URL
+        };
+
+        setRecipes((prevRecipes) => [...prevRecipes, newRecipe]);
+      } else {
+        console.error('Error fetching recipes:', result.error);
+      }
+    } catch (error) {
+      console.error('Error fetching recipes:', error);
+    }
   };
 
   const handleRecipeClick = (recipe: Recipe) => {
@@ -409,11 +429,7 @@ const Inventory = () => {
           <DialogTitle>{currentRecipe?.title}</DialogTitle>
           <DialogContent>
             <Typography variant="h6">Ingredients</Typography>
-            <ul>
-              {currentRecipe?.ingredients.map((ingredient, index) => (
-                <li key={index}>{ingredient}</li>
-              ))}
-            </ul>
+            <Typography paragraph>{currentRecipe?.ingredients}</Typography>
             <Typography variant="h6">Directions</Typography>
             <Typography paragraph>{currentRecipe?.directions}</Typography>
             <Typography variant="h6">Suggestions</Typography>
