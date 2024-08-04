@@ -37,8 +37,8 @@ const AppFeatures = () => {
         fontSize: '1.5rem',
       }}>
         My Pantry Pal is a web browser app that keeps your pantry organized with a detailed inventory, tracking quantities,
-        expiration dates, prices, and more. Quickly add items by scanning barcodes with your device's camera, and
-        let our AI tools classify ingredients and suggest recipes based on your pantry's contents. Available on your
+        expiration dates, prices, and more. Quickly add items by scanning barcodes with your device&apos;s camera, and
+        let our AI tools classify ingredients and suggest recipes based on your pantry&apos;s contents. Available on your
         web browser for absolutely free.
       </Typography>
       <List sx={{
@@ -125,7 +125,7 @@ const AppFeatures = () => {
                 color="textSecondary"
                 sx={{ fontSize: '1.15rem' }}  // Updated secondary font size
               >
-                Make an account, and don't lose track of your groceries!
+                Make an account, and don&apos;t lose track of your groceries!
               </Typography>
             }
           />

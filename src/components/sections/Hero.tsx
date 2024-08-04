@@ -49,7 +49,7 @@ const Hero = () => {
           }}>
             Make an account to start organizing your pantry today!
             <br /><br />
-            Effortlessly manage your pantry by scanning item barcodes with your device's camera!
+            Effortlessly manage your pantry by scanning item barcodes with your device&apos;s camera!
             Instantly upload and classify ingredients using AI, while our app suggests delicious
             recipes tailored to your pantry.
           </Typography>

@@ -278,14 +278,14 @@ const Inventory = () => {
             {items.length === 0 && (
               <Box display="flex" justifyContent="center" alignItems="center" minHeight="100px">
                 <Typography variant="body1" align="center" style={{ fontStyle: 'italic', color: theme.palette.text.primary }}>
-                  Click "Add Item" to get started!
+                  Click &quot;Add Item&quot; to get started!
                 </Typography>
               </Box>
             )}
             {items.length > 0 && filteredItems.length === 0 && (
               <Box display="flex" justifyContent="center" alignItems="center" minHeight="100px">
                 <Typography variant="body1" align="center" style={{ fontStyle: 'italic', color: theme.palette.text.primary }}>
-                  You don't have any of these!
+                  You don&apos;t have any of these!
                 </Typography>
               </Box>
             )}
