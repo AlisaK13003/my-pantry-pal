@@ -9,7 +9,7 @@ const Newsletter = () => {
   const theme = useTheme();
 
   // Convert hex color to RGB
-  const hexToRgb = (hex) => {
+  const hexToRgb = (hex: string) => {
     // Remove the hash at the start if it's there
     hex = hex.replace(/^#/, '');
 
