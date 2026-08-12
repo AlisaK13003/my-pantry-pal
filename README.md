@@ -1,36 +1,137 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# My Pantry Pal
 
-## Getting Started
+My Pantry Pal is a pantry inventory and recipe idea app built with Next.js, TypeScript, Firebase, Material UI, and OpenAI. Users can sign up, manage pantry items in a persistent Firestore-backed inventory, track quantities and expiration dates, and generate recipe ideas from the ingredients they already have.
 
-First, run the development server:
+## Why this project matters
+
+This project is more than a starter Next.js app. It demonstrates a full-stack React workflow with authentication, cloud persistence, authenticated user data modeling, API routes, third-party AI integration, and a polished Material UI interface.
+
+## Features
+
+- Email/password sign up and sign in with Firebase Authentication
+- Per-user pantry inventories stored in Cloud Firestore
+- Add, edit, delete, search, and merge matching pantry items
+- Expiration date and quantity tracking
+- OpenAI-powered recipe generation from the current pantry
+- Light and dark mode support with a custom MUI theme
+- Responsive landing page and authenticated inventory experience
+
+## Tech stack
+
+- **Framework:** Next.js 14, React 18, TypeScript
+- **UI:** Material UI, Emotion, MUI Icons
+- **Backend:** Next.js API routes
+- **Auth and data:** Firebase Authentication, Cloud Firestore
+- **AI:** OpenAI API
+- **Other dependencies:** Axios, Google Cloud AI Platform package
+
+## Project structure
+
+```text
+src/
+  components/
+    sections/       Landing page sections
+    ui/             Sign-in/sign-up modal
+  pages/
+    api/recipe.ts   OpenAI recipe-generation endpoint
+    index.tsx       Marketing/landing page
+    inventory.tsx   Authenticated pantry inventory UI
+  styles/           Global CSS and MUI theme
+  firebase.ts       Firebase client setup and inventory data helpers
+```
+
+## Getting started
+
+1. Install dependencies.
+
+```bash
+npm install
+```
+
+2. Create a local environment file.
+
+```bash
+cp .env.example .env.local
+```
+
+3. Fill in the Firebase and OpenAI values in `.env.local`.
+
+4. Start the development server.
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+5. Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment variables
 
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and load Inter, a custom Google Font.
+Firebase web app configuration is safe to expose to the browser, but keeping it in environment variables makes the project easier to configure across local, preview, and production environments.
 
-## Learn More
+```text
+NEXT_PUBLIC_FIREBASE_API_KEY=
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
+NEXT_PUBLIC_FIREBASE_APP_ID=
+NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=
+OPENAI_API_KEY=
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Firestore data model
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+User data is organized under each Firebase Auth user:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
+```text
+users/{uid}
+  email
+  createdAt
 
-## Deploy on Vercel
+users/{uid}/inventory/{itemId}
+  date
+  type
+  quantity
+  updatedAt
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Recommended Firestore security posture:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+- Users should only be able to read and write their own `users/{uid}` document.
+- Users should only be able to read and write inventory documents under their own UID.
+- The OpenAI API key should remain server-only in `.env.local` and should never be exposed with a `NEXT_PUBLIC_` prefix.
+
+Example rule shape:
+
+```js
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      match /inventory/{itemId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+  }
+}
+```
+
+## Available scripts
+
+```bash
+npm run dev
+npm run build
+npm run start
+npm run lint
+```
+
+## Future improvements
+
+- Persist generated recipe history per user
+- Add image upload or camera-based item entry
+- Store item units in Firestore instead of defaulting to `units`
+- Add stricter form validation and loading/error states
+- Add automated tests for inventory helpers and the recipe API route

@@ -22,14 +22,24 @@ import {
   Timestamp // Import Timestamp for handling date fields
 } from 'firebase/firestore';
 
+const getRequiredEnv = (name: string) => {
+  const value = process.env[name];
+
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+
+  return value;
+};
+
 const firebaseConfig = {
-  apiKey: "AIzaSyAali0FngChaNv1MpqMDqOFp03lET0ztXg",
-  authDomain: "inventory-management-26206.firebaseapp.com",
-  projectId: "inventory-management-26206",
-  storageBucket: "inventory-management-26206.appspot.com",
-  messagingSenderId: "673430879548",
-  appId: "1:673430879548:web:fd0ea57725b6e3f4927239",
-  measurementId: "G-K6JDJBRGJL"
+  apiKey: getRequiredEnv('NEXT_PUBLIC_FIREBASE_API_KEY'),
+  authDomain: getRequiredEnv('NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN'),
+  projectId: getRequiredEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID'),
+  storageBucket: getRequiredEnv('NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET'),
+  messagingSenderId: getRequiredEnv('NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID'),
+  appId: getRequiredEnv('NEXT_PUBLIC_FIREBASE_APP_ID'),
+  measurementId: getRequiredEnv('NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID'),
 };
 
 export interface InventoryItem {
