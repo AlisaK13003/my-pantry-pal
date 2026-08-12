@@ -64,61 +64,6 @@ npm run dev
 
 5. Open [http://localhost:3000](http://localhost:3000).
 
-## Environment variables
-
-Firebase web app configuration is safe to expose to the browser, but keeping it in environment variables makes the project easier to configure across local, preview, and production environments.
-
-```text
-NEXT_PUBLIC_FIREBASE_API_KEY=
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
-NEXT_PUBLIC_FIREBASE_APP_ID=
-NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=
-OPENAI_API_KEY=
-```
-
-## Firestore data model
-
-User data is organized under each Firebase Auth user:
-
-```text
-users/{uid}
-  email
-  createdAt
-
-users/{uid}/inventory/{itemId}
-  date
-  type
-  quantity
-  updatedAt
-```
-
-Recommended Firestore security posture:
-
-- Users should only be able to read and write their own `users/{uid}` document.
-- Users should only be able to read and write inventory documents under their own UID.
-- The OpenAI API key should remain server-only in `.env.local` and should never be exposed with a `NEXT_PUBLIC_` prefix.
-
-Example rule shape:
-
-```js
-rules_version = '2';
-
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-
-      match /inventory/{itemId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
-      }
-    }
-  }
-}
-```
-
 ## Available scripts
 
 ```bash
