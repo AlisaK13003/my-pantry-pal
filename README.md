@@ -1,10 +1,10 @@
 # My Pantry Pal
 
-My Pantry Pal helps users keep track of what is in their kitchen and get recipe ideas from ingredients they already have. I built it with Next.js, TypeScript, Firebase, Material UI, and the OpenAI API.
+My Pantry Pal helps users keep track of what is in their kitchen. I built it with Next.js, TypeScript, Firebase, and Material UI.
 
 ## About the project
 
-I started this as a pantry inventory manager, then added authentication, Firestore-backed user data, and an API route that asks OpenAI for recipe ideas based on the current pantry list. The goal was to make something practical while getting more comfortable connecting a React frontend to real backend services.
+I started this as a pantry inventory manager, then added authentication and Firestore-backed user data. The goal was to make something practical while getting more comfortable connecting a React frontend to real backend services.
 
 ## Features
 
@@ -12,7 +12,6 @@ I started this as a pantry inventory manager, then added authentication, Firesto
 - Per-user pantry inventories stored in Cloud Firestore
 - Add, edit, delete, search, and merge matching pantry items
 - Expiration date and quantity tracking
-- OpenAI-powered recipe generation from the current pantry
 - Light and dark mode support with a custom MUI theme
 - Responsive landing page and authenticated inventory experience
 
@@ -22,7 +21,7 @@ I started this as a pantry inventory manager, then added authentication, Firesto
 - **UI:** Material UI, Emotion, MUI Icons
 - **Backend:** Next.js API routes
 - **Auth and data:** Firebase Authentication, Cloud Firestore
-- **AI:** OpenAI API
+- **Future AI work:** OpenAI API for recipe ideas
 - **Other dependencies:** Axios, Google Cloud AI Platform package
 
 ## Project structure
@@ -33,7 +32,7 @@ src/
     sections/       Landing page sections
     ui/             Sign-in/sign-up modal
   pages/
-    api/recipe.ts   OpenAI recipe-generation endpoint
+    api/recipe.ts   Recipe idea endpoint experiment
     index.tsx       Marketing/landing page
     inventory.tsx   Authenticated pantry inventory UI
   styles/           Global CSS and MUI theme
@@ -54,7 +53,7 @@ npm install
 cp .env.example .env.local
 ```
 
-3. Fill in the Firebase and OpenAI values in `.env.local`.
+3. Fill in the Firebase values in `.env.local`.
 
 4. Start the development server.
 
@@ -75,6 +74,7 @@ npm run lint
 
 ## Future improvements
 
+- Add recipe ideas from the current pantry
 - Persist generated recipe history per user
 - Add image upload or camera-based item entry
 - Store item units in Firestore instead of defaulting to `units`
