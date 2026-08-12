@@ -1,10 +1,10 @@
 # My Pantry Pal
 
-My Pantry Pal is a pantry inventory and recipe idea app built with Next.js, TypeScript, Firebase, Material UI, and OpenAI. Users can sign up, manage pantry items in a persistent Firestore-backed inventory, track quantities and expiration dates, and generate recipe ideas from the ingredients they already have.
+My Pantry Pal helps users keep track of what is in their kitchen and get recipe ideas from ingredients they already have. I built it with Next.js, TypeScript, Firebase, Material UI, and the OpenAI API.
 
-## Why this project matters
+## About the project
 
-This project is more than a starter Next.js app. It demonstrates a full-stack React workflow with authentication, cloud persistence, authenticated user data modeling, API routes, third-party AI integration, and a polished Material UI interface.
+I started this as a pantry inventory manager, then added authentication, Firestore-backed user data, and an API route that asks OpenAI for recipe ideas based on the current pantry list. The goal was to make something practical while getting more comfortable connecting a React frontend to real backend services.
 
 ## Features
 
