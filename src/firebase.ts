@@ -22,25 +22,27 @@ import {
   Timestamp // Import Timestamp for handling date fields
 } from 'firebase/firestore';
 
-const getRequiredEnv = (name: string) => {
-  const value = process.env[name];
-
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-
-  return value;
-};
+const getFirebaseEnv = (name: string) => process.env[name] || '';
 
 const firebaseConfig = {
-  apiKey: getRequiredEnv('NEXT_PUBLIC_FIREBASE_API_KEY'),
-  authDomain: getRequiredEnv('NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN'),
-  projectId: getRequiredEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID'),
-  storageBucket: getRequiredEnv('NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET'),
-  messagingSenderId: getRequiredEnv('NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID'),
-  appId: getRequiredEnv('NEXT_PUBLIC_FIREBASE_APP_ID'),
-  measurementId: getRequiredEnv('NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID'),
+  apiKey: getFirebaseEnv('NEXT_PUBLIC_FIREBASE_API_KEY'),
+  authDomain: getFirebaseEnv('NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN'),
+  projectId: getFirebaseEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID'),
+  storageBucket: getFirebaseEnv('NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET'),
+  messagingSenderId: getFirebaseEnv('NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID'),
+  appId: getFirebaseEnv('NEXT_PUBLIC_FIREBASE_APP_ID'),
+  measurementId: getFirebaseEnv('NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID'),
 };
+
+const missingFirebaseConfig = Object.entries(firebaseConfig)
+  .filter(([, value]) => !value)
+  .map(([key]) => key);
+
+if (typeof window !== 'undefined' && missingFirebaseConfig.length > 0) {
+  throw new Error(
+    `Missing Firebase environment configuration: ${missingFirebaseConfig.join(', ')}`
+  );
+}
 
 export interface InventoryItem {
   itemId: string;
@@ -49,9 +51,9 @@ export interface InventoryItem {
   quantity: number;
 }
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+const app = typeof window === 'undefined' ? null : initializeApp(firebaseConfig);
+const auth = app ? getAuth(app) : (null as unknown as ReturnType<typeof getAuth>);
+const db = app ? getFirestore(app) : (null as unknown as ReturnType<typeof getFirestore>);
 
 export const signUp = async (email: string, password: string) => {
   const userCredential = await createUserWithEmailAndPassword(auth, email, password);
