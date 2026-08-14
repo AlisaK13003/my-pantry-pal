@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
+  Auth,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
@@ -10,6 +11,7 @@ import {
 } from 'firebase/auth';
 import {
   getFirestore,
+  Firestore,
   collection,
   addDoc,
   doc,
@@ -38,11 +40,7 @@ const missingFirebaseConfig = Object.entries(firebaseConfig)
   .filter(([, value]) => !value)
   .map(([key]) => key);
 
-if (typeof window !== 'undefined' && missingFirebaseConfig.length > 0) {
-  throw new Error(
-    `Missing Firebase environment configuration: ${missingFirebaseConfig.join(', ')}`
-  );
-}
+export const isFirebaseConfigured = missingFirebaseConfig.length === 0;
 
 export interface InventoryItem {
   itemId: string;
@@ -51,16 +49,34 @@ export interface InventoryItem {
   quantity: number;
 }
 
-const app = typeof window === 'undefined' ? null : initializeApp(firebaseConfig);
-const auth = app ? getAuth(app) : (null as unknown as ReturnType<typeof getAuth>);
-const db = app ? getFirestore(app) : (null as unknown as ReturnType<typeof getFirestore>);
+const app = typeof window !== 'undefined' && isFirebaseConfigured ? initializeApp(firebaseConfig) : null;
+const auth = app ? getAuth(app) : null;
+const db = app ? getFirestore(app) : null;
+
+const requireAuth = (): Auth => {
+  if (!auth) {
+    throw new Error('Firebase Authentication is not configured.');
+  }
+
+  return auth;
+};
+
+const requireDb = (): Firestore => {
+  if (!db) {
+    throw new Error('Firestore is not configured.');
+  }
+
+  return db;
+};
 
 export const signUp = async (email: string, password: string) => {
-  const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+  const firebaseAuth = requireAuth();
+  const firestore = requireDb();
+  const userCredential = await createUserWithEmailAndPassword(firebaseAuth, email, password);
   const uid = userCredential.user.uid;
 
   // Create user document in Firestore using Timestamp for date
-  await setDoc(doc(db, 'users', uid), {
+  await setDoc(doc(firestore, 'users', uid), {
     email: email,
     createdAt: Timestamp.fromDate(new Date()) // Convert to Timestamp
   });
@@ -69,13 +85,14 @@ export const signUp = async (email: string, password: string) => {
 };
 
 export const signIn = async (email: string, password: string) => {
-  await setPersistence(auth, browserLocalPersistence);
-  const userCredential = await signInWithEmailAndPassword(auth, email, password);
+  const firebaseAuth = requireAuth();
+  await setPersistence(firebaseAuth, browserLocalPersistence);
+  const userCredential = await signInWithEmailAndPassword(firebaseAuth, email, password);
   return userCredential;
 };
 
 export const logOut = async () => {
-  await signOut(auth);
+  await signOut(requireAuth());
 };
 
 function capitalizeWords(input: string): string {
@@ -84,7 +101,8 @@ function capitalizeWords(input: string): string {
 
 
 export const addItemToInventory = async (uid: string, date: Date, type: string, quantity: number) => {
-  const userCollection = collection(db, `users/${uid}/inventory`);
+  const firestore = requireDb();
+  const userCollection = collection(firestore, `users/${uid}/inventory`);
   const dateAsTimestamp = Timestamp.fromDate(date); // Convert Date to Timestamp
   const formattedType = capitalizeWords(type); // Capitalize and format the type string
 
@@ -98,7 +116,7 @@ export const addItemToInventory = async (uid: string, date: Date, type: string, 
     const existingItemData = existingItemDoc.data();
     const newQuantity = existingItemData.quantity + quantity;
 
-    await updateDoc(doc(db, `users/${uid}/inventory/${existingItemDoc.id}`), {
+    await updateDoc(doc(firestore, `users/${uid}/inventory/${existingItemDoc.id}`), {
       quantity: newQuantity,
       updatedAt: Timestamp.now(), // Use Timestamp here
       type: formattedType // Ensure type is consistently formatted
@@ -116,12 +134,12 @@ export const addItemToInventory = async (uid: string, date: Date, type: string, 
 };
 
 export const removeItemFromInventory = async (uid: string, itemId: string) => {
-  const itemDoc = doc(db, `users/${uid}/inventory/${itemId}`);
+  const itemDoc = doc(requireDb(), `users/${uid}/inventory/${itemId}`);
   await deleteDoc(itemDoc);
 };
 
 export const editItemInInventory = async (uid: string, itemId: string, newType: string, newQuantity: number) => {
-  const itemDoc = doc(db, `users/${uid}/inventory/${itemId}`);
+  const itemDoc = doc(requireDb(), `users/${uid}/inventory/${itemId}`);
   await updateDoc(itemDoc, {
     type: newType,
     quantity: newQuantity,
@@ -130,7 +148,7 @@ export const editItemInInventory = async (uid: string, itemId: string, newType: 
 };
 
 export const getUserInventory = async (uid: string): Promise<InventoryItem[]> => {
-  const userCollection = collection(db, `users/${uid}/inventory`);
+  const userCollection = collection(requireDb(), `users/${uid}/inventory`);
   const q = query(userCollection);
   const querySnapshot = await getDocs(q);
   const items = querySnapshot.docs.map(doc => ({

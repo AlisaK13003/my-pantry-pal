@@ -3,7 +3,7 @@ import { ThemeProvider } from '@mui/material/styles';
 import { Alert, AppBar, Toolbar, Typography, Container, TextField, Grid, Paper, IconButton, Button, Dialog, DialogTitle, DialogContent, DialogActions, InputAdornment, Box, Divider, Select, MenuItem } from '@mui/material';
 import { Add, Edit, Delete, CameraAlt, UploadFile, Brightness4, Brightness7, AccountCircle } from '@mui/icons-material';
 import { createMyTheme } from '../styles/theme';
-import { auth, db, signOut, addItemToInventory, removeItemFromInventory, editItemInInventory, getUserInventory } from '../firebase'; // Adjust the import path as needed
+import { auth, addItemToInventory, removeItemFromInventory, editItemInInventory, getUserInventory, isFirebaseConfigured } from '../firebase'; // Adjust the import path as needed
 import { onAuthStateChanged } from 'firebase/auth';
 import AutoAwesome from '@mui/icons-material/AutoAwesome';
 
@@ -48,6 +48,7 @@ const Inventory = () => {
   const [newItemUnit, setNewItemUnit] = useState('units');
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [recipeError, setRecipeError] = useState('');
+  const [firebaseError, setFirebaseError] = useState('');
   const [mode, setMode] = useState<'light' | 'dark'>('light');
   const [errors, setErrors] = useState<{ name: boolean; quantity: boolean; expirationDate: boolean }>({
     name: false,
@@ -59,6 +60,11 @@ const Inventory = () => {
   const theme = createMyTheme(mode);
 
   useEffect(() => {
+    if (!isFirebaseConfigured || !auth) {
+      setFirebaseError('Firebase is not configured for this deployment yet.');
+      return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         setUserId(user.uid);
@@ -286,6 +292,11 @@ const Inventory = () => {
               Recipe Ideas
             </Button>
           </Box>
+          {firebaseError && (
+            <Alert severity="error" sx={{ marginBottom: '20px' }}>
+              {firebaseError}
+            </Alert>
+          )}
           {recipeError && (
             <Alert severity="warning" sx={{ marginBottom: '20px' }}>
               {recipeError}
