@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ThemeProvider } from '@mui/material/styles';
-import { AppBar, Toolbar, Typography, Container, TextField, Grid, Paper, IconButton, Button, Dialog, DialogTitle, DialogContent, DialogActions, InputAdornment, Box, Divider, Select, MenuItem } from '@mui/material';
+import { Alert, AppBar, Toolbar, Typography, Container, TextField, Grid, Paper, IconButton, Button, Dialog, DialogTitle, DialogContent, DialogActions, InputAdornment, Box, Divider, Select, MenuItem } from '@mui/material';
 import { Add, Edit, Delete, CameraAlt, UploadFile, Brightness4, Brightness7, AccountCircle } from '@mui/icons-material';
 import { createMyTheme } from '../styles/theme';
 import { auth, db, signOut, addItemToInventory, removeItemFromInventory, editItemInInventory, getUserInventory } from '../firebase'; // Adjust the import path as needed
@@ -25,6 +25,8 @@ interface Recipe {
   imageUrl: string;  // Add this line to include the image URL
 }
 
+const MIN_RECIPE_ITEMS = 5;
+
 const Inventory = () => {
   const formatDate = (date:any) => {
     if (!date || !date.seconds) {
@@ -45,6 +47,7 @@ const Inventory = () => {
   const [newItemExpirationDate, setNewItemExpirationDate] = useState('');
   const [newItemUnit, setNewItemUnit] = useState('units');
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [recipeError, setRecipeError] = useState('');
   const [mode, setMode] = useState<'light' | 'dark'>('light');
   const [errors, setErrors] = useState<{ name: boolean; quantity: boolean; expirationDate: boolean }>({
     name: false,
@@ -177,6 +180,13 @@ const Inventory = () => {
 
 
   const handleRecipeIdeas = async () => {
+    if (items.length < MIN_RECIPE_ITEMS) {
+      setRecipeError(`Add at least ${MIN_RECIPE_ITEMS} ingredients before generating recipe ideas.`);
+      return;
+    }
+
+    setRecipeError('');
+
     try {
       const response = await fetch('/api/recipe', {
         method: 'POST',
@@ -200,9 +210,11 @@ const Inventory = () => {
 
         setRecipes((prevRecipes) => [...prevRecipes, newRecipe]);
       } else {
+        setRecipeError(result.error || 'Unable to generate recipe ideas right now.');
         console.error('Error fetching recipes:', result.error);
       }
     } catch (error) {
+      setRecipeError('Unable to generate recipe ideas right now.');
       console.error('Error fetching recipes:', error);
     }
   };
@@ -274,6 +286,11 @@ const Inventory = () => {
               Recipe Ideas
             </Button>
           </Box>
+          {recipeError && (
+            <Alert severity="warning" sx={{ marginBottom: '20px' }}>
+              {recipeError}
+            </Alert>
+          )}
           <Box style={{ maxHeight: '600px', overflowY: items.length > 0 ? 'auto' : 'hidden', padding: '10px' }}>
             {items.length === 0 && (
               <Box display="flex" justifyContent="center" alignItems="center" minHeight="100px">

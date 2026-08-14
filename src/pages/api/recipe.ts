@@ -7,6 +7,8 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY, // Ensure you have your API key in environment variables
 });
 
+const MIN_RECIPE_ITEMS = 5;
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed, only POST requests are accepted' });
@@ -17,6 +19,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (!pantry_items || !Array.isArray(pantry_items) || pantry_items.length === 0) {
       throw new Error("pantry_items is required and should be a non-empty array");
+    }
+
+    if (pantry_items.length < MIN_RECIPE_ITEMS) {
+      return res.status(400).json({
+        error: `Add at least ${MIN_RECIPE_ITEMS} ingredients before generating recipe ideas.`,
+      });
     }
 
     const formattedPantryItems = pantry_items.map(item => `${item.name},${item.quantity},${item.expirationDate}`).join('; ');
