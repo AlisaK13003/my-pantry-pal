@@ -144,6 +144,18 @@ Return JSON with this shape:
       return res.status(500).json({ error: 'The OpenAI API key is invalid.' });
     }
 
+    if (error?.status === 403) {
+      return res.status(500).json({ error: 'This OpenAI API key does not have permission to generate recipes.' });
+    }
+
+    if (error?.status === 404) {
+      return res.status(500).json({ error: `The OpenAI model "${OPENAI_MODEL}" is not available for this account.` });
+    }
+
+    if (error?.status === 429) {
+      return res.status(500).json({ error: 'OpenAI could not generate a recipe because the account hit a usage or billing limit.' });
+    }
+
     if (error instanceof SyntaxError) {
       return res.status(502).json({ error: 'OpenAI returned a recipe that could not be read.' });
     }
