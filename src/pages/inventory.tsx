@@ -17,12 +17,11 @@ interface Item {
 }
 
 interface Recipe {
-  id: number;
+  id: string;
   title: string;
   ingredients: string[];
-  directions: string;
+  directions: string[];
   suggestions: string;
-  imageUrl: string;  // Add this line to include the image URL
 }
 
 const MIN_RECIPE_ITEMS = 5;
@@ -48,6 +47,7 @@ const Inventory = () => {
   const [newItemUnit, setNewItemUnit] = useState('units');
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [recipeError, setRecipeError] = useState('');
+  const [isGeneratingRecipe, setIsGeneratingRecipe] = useState(false);
   const [firebaseError, setFirebaseError] = useState('');
   const [mode, setMode] = useState<'light' | 'dark'>('light');
   const [errors, setErrors] = useState<{ name: boolean; quantity: boolean; expirationDate: boolean }>({
@@ -192,6 +192,7 @@ const Inventory = () => {
     }
 
     setRecipeError('');
+    setIsGeneratingRecipe(true);
 
     try {
       const response = await fetch('/api/recipe', {
@@ -211,7 +212,6 @@ const Inventory = () => {
           ingredients: result.recipe.ingredients,
           directions: result.recipe.directions,
           suggestions: result.recipe.suggestions,
-          imageUrl: result.recipe.imageUrl || '', // Handle optional image URL
         };
 
         setRecipes((prevRecipes) => [...prevRecipes, newRecipe]);
@@ -222,6 +222,8 @@ const Inventory = () => {
     } catch (error) {
       setRecipeError('Unable to generate recipe ideas right now.');
       console.error('Error fetching recipes:', error);
+    } finally {
+      setIsGeneratingRecipe(false);
     }
   };
 
@@ -285,11 +287,12 @@ const Inventory = () => {
             </Button>
             <Button
               variant="contained"
+              disabled={isGeneratingRecipe}
               style={{ backgroundColor: mode === 'light' ? lightModeBlue : darkModeBlue, color: theme.palette.text.primary, minWidth: '150px', padding: '10px 16px' }}
               startIcon={<AutoAwesome />} // Add Sparkles icon here
               onClick={handleRecipeIdeas}
             >
-              Recipe Ideas
+              {isGeneratingRecipe ? 'Generating...' : 'Recipe Ideas'}
             </Button>
           </Box>
           {firebaseError && (
@@ -348,14 +351,23 @@ const Inventory = () => {
             Recipe Ideas
           </Typography>
           <Box style={{ padding: '10px' }}>
+            {recipes.length === 0 && (
+              <Typography variant="body1" align="center" style={{ fontStyle: 'italic', color: theme.palette.text.primary }}>
+                Add at least 5 pantry items, then generate a recipe idea here.
+              </Typography>
+            )}
             <Grid container spacing={3}>
               {recipes.map((recipe) => (
               <Grid item xs={12} sm={6} md={6} key={recipe.id}>
-                <Paper style={{ height: '200px', cursor: 'pointer', backgroundColor: theme.palette.background.paper }} onClick={() => handleRecipeClick(recipe)}>
-                  <Box style={{ height: '50%', backgroundColor: '#ccc', backgroundImage: `url(${recipe.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
-                  <Box style={{ height: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f5f5f5' }}>
-                    <Typography variant="h6" style={{ color: theme.palette.text.primary }}>{recipe.title}</Typography>
-                  </Box>
+                <Paper style={{ minHeight: '180px', cursor: 'pointer', backgroundColor: theme.palette.background.paper, padding: '16px' }} onClick={() => handleRecipeClick(recipe)}>
+                  <Typography variant="h6" style={{ color: theme.palette.text.primary, marginBottom: '8px' }}>{recipe.title}</Typography>
+                  <Typography variant="body2" style={{ color: theme.palette.text.secondary, marginBottom: '12px' }}>
+                    {recipe.ingredients.slice(0, 3).join(', ')}
+                    {recipe.ingredients.length > 3 ? '...' : ''}
+                  </Typography>
+                  <Typography variant="body2" style={{ color: theme.palette.text.primary }}>
+                    {recipe.suggestions}
+                  </Typography>
                 </Paper>
               </Grid>
               ))}
@@ -457,9 +469,21 @@ const Inventory = () => {
           <DialogTitle>{currentRecipe?.title}</DialogTitle>
           <DialogContent>
             <Typography variant="h6">Ingredients</Typography>
-            <Typography paragraph>{currentRecipe?.ingredients}</Typography>
+            <Box component="ul" sx={{ marginTop: 1, paddingLeft: 3 }}>
+              {currentRecipe?.ingredients.map((ingredient, index) => (
+                <Typography component="li" key={`${ingredient}-${index}`} sx={{ marginBottom: 0.5 }}>
+                  {ingredient}
+                </Typography>
+              ))}
+            </Box>
             <Typography variant="h6">Directions</Typography>
-            <Typography paragraph>{currentRecipe?.directions}</Typography>
+            <Box component="ol" sx={{ marginTop: 1, paddingLeft: 3 }}>
+              {currentRecipe?.directions.map((step, index) => (
+                <Typography component="li" key={`${step}-${index}`} sx={{ marginBottom: 0.5 }}>
+                  {step}
+                </Typography>
+              ))}
+            </Box>
             <Typography variant="h6">Suggestions</Typography>
             <Typography paragraph>{currentRecipe?.suggestions}</Typography>
           </DialogContent>
