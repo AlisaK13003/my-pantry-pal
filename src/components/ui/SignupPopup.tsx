@@ -73,6 +73,10 @@ const SignInSignUpModal: React.FC<SignInSignUpModalProps> = ({ open, handleClose
       setPasswordError('Password is required');
       return;
     }
+    if (password.length < 6) {
+      setPasswordError('Password should be at least 6 characters.');
+      return;
+    }
     if (!confirmPassword) {
       setConfirmPasswordError('Confirm password is required');
       return;
@@ -98,8 +102,18 @@ const SignInSignUpModal: React.FC<SignInSignUpModalProps> = ({ open, handleClose
         case 'auth/weak-password':
           setPasswordError('Password should be at least 6 characters.');
           break;
+        case 'auth/operation-not-allowed':
+        case 'auth/configuration-not-found':
+          setEmailError('Email/password sign up is not enabled in Firebase.');
+          break;
+        case 'auth/unauthorized-domain':
+          setEmailError('This domain is not allowed in Firebase Authentication yet.');
+          break;
+        case 'permission-denied':
+          setEmailError('Account created, but Firestore blocked saving your profile.');
+          break;
         default:
-          setEmailError('Please double-check your email and password.');
+          setEmailError(error.message || 'Please double-check your email and password.');
           break;
       }
     }
