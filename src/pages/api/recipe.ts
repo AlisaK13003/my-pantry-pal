@@ -565,7 +565,7 @@ Rules:
 - Do not add a separate dessert or side just to use an incompatible ingredient.
 - Never combine seafood or meat with chocolate, marshmallows, candy, or other dessert ingredients.
 - Prefer the strongest compatible subset of the pantry. For example, pasta plus tomatoes plus garlic plus onions can make a simple tomato pasta even if unrelated items are also present.
-- Consider international and culturally specific dishes when the pantry fits them. For example, banana or plantain plus rice flour plus shredded coconut plus sugar plus sesame seeds plus baking powder plus vegetable oil can make Thai fried bananas, also called gluay kaeg.
+- Use broad cooking knowledge across cuisines. If a compatible subset forms a known dish, prefer that over inventing a generic recipe.
 - Do not return any recipe whose title is already listed in "Already shown recipe titles."
 - If the list cannot make a sensible recipe, return canMakeRecipe false with a short reason.
 - If it can, create multiple satisfying recipes when possible. Recipes do not need to use every pantry item.
