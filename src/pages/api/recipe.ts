@@ -24,6 +24,35 @@ interface RecipeResponse {
   suggestions: string;
   imageQuery: string;
   imageUrl: string;
+  imageAttribution: RecipeImageAttribution | null;
+}
+
+interface RecipeImageAttribution {
+  photographer: string;
+  photographerUrl: string;
+  sourceName: string;
+  sourceUrl: string;
+}
+
+interface RecipePhoto {
+  imageUrl: string;
+  attribution: RecipeImageAttribution | null;
+}
+
+interface PexelsPhoto {
+  url?: string;
+  photographer?: string;
+  photographer_url?: string;
+  src?: {
+    landscape?: string;
+    large2x?: string;
+    large?: string;
+    medium?: string;
+  };
+}
+
+interface PexelsSearchResponse {
+  photos?: PexelsPhoto[];
 }
 
 interface NoRecipeCandidate {
@@ -142,6 +171,66 @@ const buildRecipeImageUrl = (imageQuery: string) => {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 };
 
+const getRecipePhoto = async (imageQuery: string): Promise<RecipePhoto> => {
+  const fallbackImageUrl = buildRecipeImageUrl(imageQuery);
+
+  if (!process.env.PEXELS_API_KEY) {
+    return {
+      imageUrl: fallbackImageUrl,
+      attribution: null,
+    };
+  }
+
+  const searchParams = new URLSearchParams({
+    query: `${imageQuery} food`,
+    orientation: 'landscape',
+    per_page: '1',
+  });
+
+  try {
+    const response = await fetch(`https://api.pexels.com/v1/search?${searchParams.toString()}`, {
+      headers: {
+        Authorization: process.env.PEXELS_API_KEY,
+      },
+    });
+
+    if (!response.ok) {
+      console.warn('Pexels image search failed', response.status, response.statusText);
+      return {
+        imageUrl: fallbackImageUrl,
+        attribution: null,
+      };
+    }
+
+    const data = await response.json() as PexelsSearchResponse;
+    const photo = data.photos?.[0];
+    const imageUrl = photo?.src?.landscape || photo?.src?.large2x || photo?.src?.large || photo?.src?.medium;
+
+    if (!photo || !imageUrl || !photo.photographer || !photo.photographer_url || !photo.url) {
+      return {
+        imageUrl: fallbackImageUrl,
+        attribution: null,
+      };
+    }
+
+    return {
+      imageUrl,
+      attribution: {
+        photographer: photo.photographer,
+        photographerUrl: photo.photographer_url,
+        sourceName: 'Pexels',
+        sourceUrl: photo.url,
+      },
+    };
+  } catch (error) {
+    console.warn('Unable to fetch recipe image from Pexels', error);
+    return {
+      imageUrl: fallbackImageUrl,
+      attribution: null,
+    };
+  }
+};
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed, only POST requests are accepted.' });
@@ -239,6 +328,8 @@ If the pantry items cannot make a realistic recipe, return JSON with this shape 
       });
     }
 
+    const recipePhoto = await getRecipePhoto(parsedRecipe.imageQuery);
+
     const recipe: RecipeResponse = {
       title: parsedRecipe.title,
       prepTime: parsedRecipe.prepTime,
@@ -249,7 +340,8 @@ If the pantry items cannot make a realistic recipe, return JSON with this shape 
       suggestions: parsedRecipe.suggestions,
       imageQuery: parsedRecipe.imageQuery,
       id: randomUUID(),
-      imageUrl: buildRecipeImageUrl(parsedRecipe.imageQuery),
+      imageUrl: recipePhoto.imageUrl,
+      imageAttribution: recipePhoto.attribution,
     };
 
     return res.status(200).json({ recipe });

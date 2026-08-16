@@ -21,7 +21,7 @@ I started this as a pantry inventory manager, then added authentication and Fire
 - **UI:** Material UI, Emotion, MUI Icons
 - **Backend:** Next.js API routes
 - **Auth and data:** Firebase Authentication, Cloud Firestore
-- **Future AI work:** OpenAI API for recipe ideas
+- **AI and media:** OpenAI API for recipe ideas, Pexels API for recipe photos
 - **Other dependencies:** Axios, Google Cloud AI Platform package
 
 ## Project structure
@@ -32,7 +32,7 @@ src/
     sections/       Landing page sections
     ui/             Sign-in/sign-up modal
   pages/
-    api/recipe.ts   Recipe idea endpoint experiment
+    api/recipe.ts   Recipe idea and photo endpoint
     index.tsx       Marketing/landing page
     inventory.tsx   Authenticated pantry inventory UI
   styles/           Global CSS and MUI theme
@@ -53,7 +53,7 @@ npm install
 cp .env.example .env.local
 ```
 
-3. Fill in the Firebase values in `.env.local`.
+3. Fill in the Firebase values in `.env.local`. Add `OPENAI_API_KEY` for recipe generation and `PEXELS_API_KEY` for real recipe photos.
 
 4. Start the development server.
 
@@ -74,7 +74,6 @@ npm run lint
 
 ## Future improvements
 
-- Add recipe ideas from the current pantry
 - Persist generated recipe history per user
 - Add image upload or camera-based item entry
 - Store item units in Firestore instead of defaulting to `units`

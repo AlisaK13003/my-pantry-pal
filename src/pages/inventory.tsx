@@ -26,6 +26,12 @@ interface Recipe {
   directions: string[];
   suggestions: string;
   imageUrl: string;
+  imageAttribution?: {
+    photographer: string;
+    photographerUrl: string;
+    sourceName: string;
+    sourceUrl: string;
+  } | null;
 }
 
 const MIN_RECIPE_ITEMS = 5;
@@ -273,6 +279,7 @@ const Inventory = () => {
           directions: result.recipe.directions,
           suggestions: result.recipe.suggestions,
           imageUrl: result.recipe.imageUrl,
+          imageAttribution: result.recipe.imageAttribution ?? null,
         };
 
         setRecipes((prevRecipes) => [...prevRecipes, newRecipe]);
@@ -301,14 +308,14 @@ const Inventory = () => {
     setRecipes((currentRecipes) =>
       currentRecipes.map((recipe) =>
         recipe.id === recipeId
-          ? { ...recipe, imageUrl: buildRecipeFallbackImage(recipe.title) }
+          ? { ...recipe, imageUrl: buildRecipeFallbackImage(recipe.title), imageAttribution: null }
           : recipe
       )
     );
 
     setCurrentRecipe((recipe) =>
       recipe?.id === recipeId
-        ? { ...recipe, imageUrl: buildRecipeFallbackImage(recipe.title) }
+        ? { ...recipe, imageUrl: buildRecipeFallbackImage(recipe.title), imageAttribution: null }
         : recipe
     );
   };
@@ -461,6 +468,32 @@ const Inventory = () => {
                   />
                   <Box sx={{ padding: 2 }}>
                     <Typography variant="h6" style={{ color: theme.palette.text.primary, marginBottom: '8px' }}>{recipe.title}</Typography>
+                    {recipe.imageAttribution && (
+                      <Typography variant="caption" style={{ color: theme.palette.text.secondary, display: 'block', marginBottom: '8px' }}>
+                        Photo by{' '}
+                        <Box
+                          component="a"
+                          href={recipe.imageAttribution.photographerUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(event) => event.stopPropagation()}
+                          sx={{ color: 'inherit', textDecoration: 'underline' }}
+                        >
+                          {recipe.imageAttribution.photographer}
+                        </Box>
+                        {' '}on{' '}
+                        <Box
+                          component="a"
+                          href={recipe.imageAttribution.sourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(event) => event.stopPropagation()}
+                          sx={{ color: 'inherit', textDecoration: 'underline' }}
+                        >
+                          {recipe.imageAttribution.sourceName}
+                        </Box>
+                      </Typography>
+                    )}
                     <Typography variant="body2" style={{ color: theme.palette.text.secondary, marginBottom: '8px' }}>
                       Prep: {recipe.prepTime} | Cook: {recipe.cookTime} | {recipe.servings}
                     </Typography>
@@ -566,19 +599,45 @@ const Inventory = () => {
   
         <Dialog open={recipeDialogOpen} onClose={handleRecipeDialogClose} maxWidth="md" fullWidth>
           {currentRecipe?.imageUrl && (
-            <Box
-              component="img"
-              src={currentRecipe.imageUrl}
-              alt={currentRecipe.title}
-              onError={() => handleRecipeImageError(currentRecipe.id)}
-              sx={{
-                width: '100%',
-                height: { xs: 220, sm: 320 },
-                objectFit: 'cover',
-                display: 'block',
-                backgroundColor: mode === 'light' ? '#F1E6D2' : '#333333',
-              }}
-            />
+            <>
+              <Box
+                component="img"
+                src={currentRecipe.imageUrl}
+                alt={currentRecipe.title}
+                onError={() => handleRecipeImageError(currentRecipe.id)}
+                sx={{
+                  width: '100%',
+                  height: { xs: 220, sm: 320 },
+                  objectFit: 'cover',
+                  display: 'block',
+                  backgroundColor: mode === 'light' ? '#F1E6D2' : '#333333',
+                }}
+              />
+              {currentRecipe.imageAttribution && (
+                <Typography variant="caption" sx={{ display: 'block', px: 3, pt: 1, color: 'text.secondary' }}>
+                  Photo by{' '}
+                  <Box
+                    component="a"
+                    href={currentRecipe.imageAttribution.photographerUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    sx={{ color: 'inherit', textDecoration: 'underline' }}
+                  >
+                    {currentRecipe.imageAttribution.photographer}
+                  </Box>
+                  {' '}on{' '}
+                  <Box
+                    component="a"
+                    href={currentRecipe.imageAttribution.sourceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    sx={{ color: 'inherit', textDecoration: 'underline' }}
+                  >
+                    {currentRecipe.imageAttribution.sourceName}
+                  </Box>
+                </Typography>
+              )}
+            </>
           )}
           <DialogTitle>{currentRecipe?.title}</DialogTitle>
           <DialogContent>
