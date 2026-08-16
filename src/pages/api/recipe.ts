@@ -1,133 +1,23 @@
 import { OpenAI } from 'openai';
 import { NextApiRequest, NextApiResponse } from 'next';
-import { ChatCompletionCreateParams } from 'openai/resources/index.mjs';
+import { ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/completions';
 import { randomUUID } from 'crypto';
+import {
+  buildRecipePrompt,
+  findCompatibleSubsetHints,
+  getCandidateRecipes,
+  INCOMPATIBLE_RECIPE_ERROR,
+  INVENTED_INGREDIENT_ERROR,
+  isPantryItem,
+  isRecipeGenerationResult,
+  MIN_RECIPE_ITEMS,
+  PantryItemInput,
+  RecipeCandidate,
+  RECIPES_PER_REQUEST,
+  validateRecipeCandidates,
+} from '@/lib/recipeGeneration';
 
-const MIN_RECIPE_ITEMS = 5;
-const RECIPES_PER_REQUEST = 3;
 const OPENAI_MODEL = process.env.OPENAI_RECIPE_MODEL || 'gpt-4o-mini';
-const INCOMPATIBLE_RECIPE_ERROR = 'Could not generate a realistic recipe. Please try adding more compatible ingredients.';
-const INVENTED_INGREDIENT_ERROR = 'Could not generate a recipe using only your pantry items. Please add more ingredients and try again.';
-
-const MEASUREMENT_WORDS = new Set([
-  'bag',
-  'bags',
-  'bottle',
-  'bottles',
-  'box',
-  'boxes',
-  'can',
-  'cans',
-  'clove',
-  'cloves',
-  'cup',
-  'cups',
-  'dash',
-  'dashes',
-  'drained',
-  'for',
-  'g',
-  'garnish',
-  'gram',
-  'grams',
-  'kg',
-  'lb',
-  'lbs',
-  'liter',
-  'liters',
-  'ml',
-  'oz',
-  'ounce',
-  'ounces',
-  'piece',
-  'pieces',
-  'pinch',
-  'pinches',
-  'sliced',
-  'small',
-  'tablespoon',
-  'tablespoons',
-  'tbsp',
-  'teaspoon',
-  'teaspoons',
-  'to',
-  'taste',
-  'tsp',
-]);
-
-const PANTRY_DESCRIPTOR_WORDS = new Set([
-  'canned',
-  'fresh',
-  'frozen',
-]);
-
-const INGREDIENT_PREP_WORDS = new Set([
-  'chopped',
-  'cold',
-  'cooked',
-  'crushed',
-  'cut',
-  'diced',
-  'halved',
-  'ice',
-  'minced',
-  'peeled',
-  'ripe',
-  'sauce',
-  'thinly',
-]);
-
-const ALLOWED_BASIC_INGREDIENT_WORDS = new Set([
-  'water',
-]);
-
-const ALLOWED_SEASONING_WORDS = new Set([
-  'allspice',
-  'basil',
-  'bay',
-  'cardamom',
-  'cayenne',
-  'chili',
-  'chive',
-  'cilantro',
-  'cinnamon',
-  'clove',
-  'coriander',
-  'cumin',
-  'curry',
-  'dill',
-  'flake',
-  'flakes',
-  'garam',
-  'ginger',
-  'herb',
-  'herbs',
-  'leaf',
-  'masala',
-  'mint',
-  'nutmeg',
-  'oregano',
-  'paprika',
-  'parsley',
-  'pepper',
-  'powder',
-  'red',
-  'rosemary',
-  'sage',
-  'salt',
-  'seasoning',
-  'spice',
-  'spices',
-  'thyme',
-  'turmeric',
-]);
-
-interface PantryItemInput {
-  name: string;
-  quantity?: number | null;
-  expirationDate?: string;
-  unit?: string;
-}
 
 interface RecipeResponse {
   id: string;
@@ -171,255 +61,12 @@ interface PexelsSearchResponse {
   photos?: PexelsPhoto[];
 }
 
-interface NoRecipeCandidate {
-  canMakeRecipe: false;
-  reason?: string;
-}
-
-interface RecipeCandidate {
-  canMakeRecipe: true;
-  title: string;
-  prepTime: string;
-  cookTime: string;
-  servings: string;
-  ingredients: string[];
-  directions: string[];
-  suggestions: string;
-  imageQuery: string;
-}
-
-interface RecipeBatchCandidate {
-  canMakeRecipe: true;
-  recipes: RecipeCandidate[];
-}
-
-type RecipeGenerationResult = RecipeBatchCandidate | RecipeCandidate | NoRecipeCandidate;
-
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const isPantryItem = (item: unknown): item is PantryItemInput => {
-  if (!item || typeof item !== 'object') {
-    return false;
-  }
-
-  const candidate = item as Partial<PantryItemInput>;
-  return (
-    typeof candidate.name === 'string' &&
-    candidate.name.trim().length > 0 &&
-    (
-      candidate.quantity === undefined ||
-      candidate.quantity === null ||
-      (typeof candidate.quantity === 'number' && Number.isFinite(candidate.quantity))
-    )
-  );
-};
-
-const isRecipeCandidate = (recipe: unknown): recipe is RecipeCandidate => {
-  if (!recipe || typeof recipe !== 'object') {
-    return false;
-  }
-
-  const candidate = recipe as Partial<RecipeCandidate>;
-
-  return (
-    candidate.canMakeRecipe === true &&
-    typeof candidate.title === 'string' &&
-    candidate.title.trim().length > 0 &&
-    typeof candidate.prepTime === 'string' &&
-    typeof candidate.cookTime === 'string' &&
-    typeof candidate.servings === 'string' &&
-    Array.isArray(candidate.ingredients) &&
-    candidate.ingredients.every((ingredient) => typeof ingredient === 'string') &&
-    Array.isArray(candidate.directions) &&
-    candidate.directions.every((step) => typeof step === 'string') &&
-    typeof candidate.suggestions === 'string' &&
-    typeof candidate.imageQuery === 'string' &&
-    candidate.imageQuery.trim().length > 0
-  );
-};
-
-const isRecipeGenerationResult = (recipe: unknown): recipe is RecipeGenerationResult => {
-  if (!recipe || typeof recipe !== 'object') {
-    return false;
-  }
-
-  const candidate = recipe as Partial<RecipeGenerationResult>;
-
-  if (!candidate.canMakeRecipe) {
-    const noRecipe = candidate as Partial<NoRecipeCandidate>;
-    return noRecipe.reason === undefined || typeof noRecipe.reason === 'string';
-  }
-
-  const batchCandidate = candidate as Partial<RecipeBatchCandidate>;
-
-  if (Array.isArray(batchCandidate.recipes)) {
-    return batchCandidate.recipes.length > 0 && batchCandidate.recipes.every(isRecipeCandidate);
-  }
-
-  return isRecipeCandidate(recipe);
-};
-
-const formatPantryItems = (items: PantryItemInput[]) =>
-  items
-    .map((item) => {
-      const unit = item.unit && item.unit !== 'units' ? ` ${item.unit}` : '';
-      const expiration = item.expirationDate ? `, expires ${item.expirationDate}` : '';
-      const quantity = typeof item.quantity === 'number' ? `: ${item.quantity}${unit}` : '';
-      return `${item.name}${quantity}${expiration}`;
-    })
-    .join('\n');
-
-const containsAny = (text: string, terms: string[]) =>
-  terms.some((term) => new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}s?\\b`, 'i').test(text));
-
-const singularizeToken = (token: string) => {
-  if (token.endsWith('ies') && token.length > 4) {
-    return `${token.slice(0, -3)}y`;
-  }
-
-  if ((/(ches|shes|xes|zes|ses)$/).test(token) && token.length > 4) {
-    return token.slice(0, -2);
-  }
-
-  if (token.endsWith('oes') && token.length > 4) {
-    return token.slice(0, -2);
-  }
-
-  if (token.endsWith('s') && !token.endsWith('ss') && token.length > 3) {
-    return token.slice(0, -1);
-  }
-
-  return token;
-};
-
-const getIngredientTokens = (text: string, options: { removePantryDescriptors?: boolean } = {}) =>
-  text
-    .toLowerCase()
-    .replace(/&/g, ' and ')
-    .replace(/\([^)]*\)/g, ' ')
-    .replace(/[^a-z\s]/g, ' ')
-    .split(/\s+/)
-    .map(singularizeToken)
-    .filter((token) =>
-      token &&
-      token !== 'and' &&
-      !MEASUREMENT_WORDS.has(token) &&
-      !INGREDIENT_PREP_WORDS.has(token) &&
-      (!options.removePantryDescriptors || !PANTRY_DESCRIPTOR_WORDS.has(token))
-    );
-
-const recipeIngredientIsAllowed = (ingredient: string, pantryItems: PantryItemInput[]) => {
-  const ingredientTokens = getIngredientTokens(ingredient);
-
-  if (ingredientTokens.length === 0) {
-    return true;
-  }
-
-  if (ingredientTokens.every((token) => ALLOWED_SEASONING_WORDS.has(token))) {
-    return true;
-  }
-
-  if (ingredientTokens.every((token) => ALLOWED_BASIC_INGREDIENT_WORDS.has(token))) {
-    return true;
-  }
-
-  return pantryItems.some((item) => {
-    const pantryTokens = getIngredientTokens(item.name, { removePantryDescriptors: true });
-
-    if (pantryTokens.length === 0) {
-      return false;
-    }
-
-    const ingredientTokenSet = new Set(ingredientTokens);
-    const pantryTokenSet = new Set(pantryTokens);
-
-    if (pantryTokens.every((token) => ingredientTokenSet.has(token))) {
-      return true;
-    }
-
-    return ingredientTokens.some((token) => pantryTokenSet.has(token));
-  });
-};
-
-const getInventedIngredients = (recipe: RecipeCandidate, pantryItems: PantryItemInput[]) =>
-  recipe.ingredients.filter((ingredient) => !recipeIngredientIsAllowed(ingredient, pantryItems));
-
-const normalizeRecipeTitle = (title: string) =>
-  title
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((word) => (word.endsWith('s') && word.length > 3 ? word.slice(0, -1) : word))
-    .join(' ');
-
-const isDuplicateRecipeTitle = (title: string, excludedRecipeTitles: string[]) => {
-  const normalizedTitle = normalizeRecipeTitle(title);
-  return excludedRecipeTitles.some((excludedTitle) => normalizeRecipeTitle(excludedTitle) === normalizedTitle);
-};
-
-const hasObviousIncompatiblePairing = (recipe: RecipeCandidate) => {
-  const recipeText = [
-    recipe.title,
-    ...recipe.ingredients,
-    ...recipe.directions,
-    recipe.suggestions,
-  ].join(' ');
-
-  const hasSeafood = containsAny(recipeText, [
-    'anchovy',
-    'crab',
-    'fish',
-    'lobster',
-    'salmon',
-    'sardine',
-    'scallop',
-    'shrimp',
-    'tilapia',
-    'tuna',
-  ]);
-  const hasMeat = containsAny(recipeText, [
-    'bacon',
-    'beef',
-    'chicken',
-    'ham',
-    'meatball',
-    'pork',
-    'sausage',
-    'steak',
-    'turkey',
-  ]);
-  const hasDessertSweet = containsAny(recipeText, [
-    'brownie',
-    'cake',
-    'candy',
-    'caramel',
-    'chocolate',
-    'cookie',
-    'frosting',
-    'gummy',
-    'marshmallow',
-    'pudding',
-    'sprinkle',
-  ]);
-  const hasWateryFruit = containsAny(recipeText, [
-    'cantaloupe',
-    'honeydew',
-    'melon',
-    'watermelon',
-  ]);
-  const hasSourFermented = containsAny(recipeText, [
-    'kimchi',
-    'sauerkraut',
-  ]);
-  const treatsSweetAsSeparateSide = /dessert|on the side|dipped|drizzle/i.test(recipeText) && hasDessertSweet;
-
-  return (
-    ((hasSeafood || hasMeat) && (hasDessertSweet || treatsSweetAsSeparateSide)) ||
-    (hasSeafood && hasWateryFruit && hasSourFermented)
-  );
+const logRecipeDebug = (stage: string, data: unknown) => {
+  console.debug(`[recipe-generation:${stage}]`, data);
 };
 
 const buildRecipeImageUrl = (imageQuery: string) => {
@@ -516,6 +163,73 @@ const getRecipePhoto = async (imageQuery: string): Promise<RecipePhoto> => {
   }
 };
 
+const createRecipePayload = (
+  pantryItems: PantryItemInput[],
+  excludedRecipeTitles: string[],
+  retryReason?: string
+): ChatCompletionCreateParamsNonStreaming => ({
+  model: OPENAI_MODEL,
+  messages: [
+    {
+      role: 'system',
+      content:
+        'You are a practical home cooking assistant. Return only valid JSON that matches the requested shape. Keep recipes realistic, detailed, appetizing, and beginner-friendly for a normal home kitchen.',
+    },
+    {
+      role: 'user',
+      content: retryReason
+        ? `${buildRecipePrompt(pantryItems, excludedRecipeTitles)}
+
+Retry reason from the application:
+${retryReason}
+
+The previous response did not yield valid recipes. Search compatible subsets again before returning failure.`
+        : buildRecipePrompt(pantryItems, excludedRecipeTitles),
+    },
+  ],
+  response_format: { type: 'json_object' },
+  temperature: 0.2,
+  max_tokens: 1800,
+});
+
+const requestRecipesFromModel = async (
+  pantryItems: PantryItemInput[],
+  excludedRecipeTitles: string[],
+  retryReason?: string
+) => {
+  const response = await openai.chat.completions.create(createRecipePayload(pantryItems, excludedRecipeTitles, retryReason));
+  const content = response.choices[0]?.message?.content;
+
+  logRecipeDebug(retryReason ? 'raw-model-response-retry' : 'raw-model-response', content);
+
+  if (!content) {
+    throw new Error('OpenAI did not return a recipe.');
+  }
+
+  const parsedResponse = JSON.parse(content);
+  logRecipeDebug(retryReason ? 'parsed-response-retry' : 'parsed-response', parsedResponse);
+
+  return parsedResponse;
+};
+
+const convertRecipeCandidateToResponse = async (candidateRecipe: RecipeCandidate): Promise<RecipeResponse> => {
+  const recipePhoto = await getRecipePhoto(candidateRecipe.imageQuery);
+
+  return {
+    title: candidateRecipe.title,
+    prepTime: candidateRecipe.prepTime,
+    cookTime: candidateRecipe.cookTime,
+    servings: candidateRecipe.servings,
+    ingredients: candidateRecipe.ingredients,
+    directions: candidateRecipe.directions,
+    suggestions: candidateRecipe.suggestions,
+    imageQuery: candidateRecipe.imageQuery,
+    id: randomUUID(),
+    imageUrl: recipePhoto.imageUrl,
+    imageAttribution: recipePhoto.attribution,
+  };
+};
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed, only POST requests are accepted.' });
@@ -542,150 +256,81 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   }
 
-  const payload: ChatCompletionCreateParams = {
-    model: OPENAI_MODEL,
-    messages: [
-      {
-        role: 'system',
-        content:
-          'You are a practical home cooking assistant. Return only valid JSON that matches the requested shape. Keep recipes realistic, detailed, appetizing, and beginner-friendly for a normal home kitchen. Never invent joke, novelty, gross, or incompatible food pairings just to use the available ingredients.',
-      },
-      {
-        role: 'user',
-        content: `Decide whether these pantry items can make realistic, recognizable, appetizing recipes.
-
-Rules:
-- Return up to ${RECIPES_PER_REQUEST} distinct recipes in one response.
-- Each valid recipe must use at least 3 compatible pantry items from the list.
-- The ingredients list must only include pantry items from the list, plus salt, pepper, dried herbs, or spices.
-- Water is allowed as a basic ingredient.
-- Do not add bread, oil, butter, milk, eggs, flour, sugar, sauces, garnishes, or any other ingredient unless it appears in the pantry list.
-- Do not combine ingredients that clash just because they are present.
-- Ignore unrelated snack, candy, dessert, or fruit ingredients when they do not fit the main dish.
-- Do not add a separate dessert or side just to use an incompatible ingredient.
-- Never combine seafood or meat with chocolate, marshmallows, candy, or other dessert ingredients.
-- Prefer the strongest compatible subset of the pantry. For example, pasta plus tomatoes plus garlic plus onions can make a simple tomato pasta even if unrelated items are also present.
-- Use broad cooking knowledge across cuisines. If a compatible subset forms a known dish, prefer that over inventing a generic recipe.
-- Do not return any recipe whose title is already listed in "Already shown recipe titles."
-- If the list cannot make a sensible recipe, return canMakeRecipe false with a short reason.
-- If it can, create multiple satisfying recipes when possible. Recipes do not need to use every pantry item.
-
-Make it useful for someone who is not very confident at cooking:
-- include realistic amounts
-- include 5 to 7 clear directions
-- mention visual or timing cues where helpful
-- avoid assuming special equipment
-- keep the recipe practical for a weeknight meal
-
-Pantry items:
-${formatPantryItems(validPantryItems)}
-
-Already shown recipe titles:
-${excludedRecipeTitles.length > 0 ? excludedRecipeTitles.join('\n') : 'None'}
-
-Return JSON with this shape:
-{
-  "canMakeRecipe": true,
-  "recipes": [
-    {
-      "canMakeRecipe": true,
-      "title": "Recipe name",
-      "prepTime": "10 minutes",
-      "cookTime": "20 minutes",
-      "servings": "2 servings",
-      "ingredients": ["ingredient with amount"],
-      "directions": ["clear beginner-friendly step 1", "clear beginner-friendly step 2"],
-      "suggestions": "Two or three helpful sentences about substitutions, serving, or storage.",
-      "imageQuery": "short visual search phrase for this dish, like creamy tomato pasta"
-    }
-  ]
-}
-
-If the pantry items cannot make a realistic recipe, return JSON with this shape instead:
-{
-  "canMakeRecipe": false,
-  "reason": "Could not make a realistic recipe from these ingredients."
-}`,
-      },
-    ],
-    response_format: { type: 'json_object' },
-    temperature: 0.2,
-    max_tokens: 1800,
-  };
-
   try {
-    const response = await openai.chat.completions.create(payload);
-    const content = response.choices[0]?.message?.content;
+    const subsetHints = findCompatibleSubsetHints(validPantryItems);
+    logRecipeDebug('subset-hints', subsetHints);
 
-    if (!content) {
-      return res.status(502).json({ error: 'OpenAI did not return a recipe.' });
-    }
+    let parsedGeneration = await requestRecipesFromModel(validPantryItems, excludedRecipeTitles);
 
-    const parsedRecipe = JSON.parse(content);
-
-    if (!isRecipeGenerationResult(parsedRecipe)) {
+    if (!isRecipeGenerationResult(parsedGeneration)) {
       return res.status(502).json({ error: 'OpenAI returned an unexpected recipe format.' });
     }
 
-    if (!parsedRecipe.canMakeRecipe) {
+    if (!parsedGeneration.canMakeRecipe && subsetHints.length > 0) {
+      parsedGeneration = await requestRecipesFromModel(
+        validPantryItems,
+        excludedRecipeTitles,
+        'The app-side subset pre-check found at least one compatible ingredient subset. Top-level canMakeRecipe should be false only if no subset can make a sensible recipe.'
+      );
+
+      if (!isRecipeGenerationResult(parsedGeneration)) {
+        return res.status(502).json({ error: 'OpenAI returned an unexpected recipe format.' });
+      }
+    }
+
+    if (!parsedGeneration.canMakeRecipe) {
+      logRecipeDebug('validated-final-response', {
+        canMakeRecipe: false,
+        reason: parsedGeneration.reason || INCOMPATIBLE_RECIPE_ERROR,
+      });
       return res.status(422).json({
-        error: parsedRecipe.reason || INCOMPATIBLE_RECIPE_ERROR,
+        error: parsedGeneration.reason || INCOMPATIBLE_RECIPE_ERROR,
       });
     }
 
-    const candidateRecipes = 'recipes' in parsedRecipe ? parsedRecipe.recipes : [parsedRecipe];
-    const seenRecipeTitles = new Set(excludedRecipeTitles.map(normalizeRecipeTitle));
-    const validRecipes: RecipeCandidate[] = [];
+    let candidateRecipes = getCandidateRecipes(parsedGeneration);
+    let validationResult = validateRecipeCandidates(candidateRecipes, validPantryItems, excludedRecipeTitles);
+    logRecipeDebug('validation-result', validationResult);
 
-    for (const candidateRecipe of candidateRecipes) {
-      const normalizedTitle = normalizeRecipeTitle(candidateRecipe.title);
+    if (validationResult.validRecipes.length === 0 && subsetHints.length > 0) {
+      parsedGeneration = await requestRecipesFromModel(
+        validPantryItems,
+        excludedRecipeTitles,
+        'The previous recipes were rejected by validation. Generate recipes from compatible subsets only, using no ingredients outside the pantry except water, salt, pepper, dried herbs, and spices.'
+      );
 
-      if (seenRecipeTitles.has(normalizedTitle)) {
-        console.warn('Recipe duplicated an existing title', candidateRecipe.title);
-        continue;
+      if (!isRecipeGenerationResult(parsedGeneration)) {
+        return res.status(502).json({ error: 'OpenAI returned an unexpected recipe format.' });
       }
 
-      if (hasObviousIncompatiblePairing(candidateRecipe)) {
-        console.warn('Recipe had an obvious incompatible pairing', candidateRecipe.title);
-        continue;
+      if (parsedGeneration.canMakeRecipe) {
+        candidateRecipes = getCandidateRecipes(parsedGeneration);
+        validationResult = validateRecipeCandidates(candidateRecipes, validPantryItems, excludedRecipeTitles);
+        logRecipeDebug('validation-result-retry', validationResult);
       }
-
-      const inventedIngredients = getInventedIngredients(candidateRecipe, validPantryItems);
-
-      if (inventedIngredients.length > 0) {
-        console.warn('Recipe included ingredients outside pantry', candidateRecipe.title, inventedIngredients);
-        continue;
-      }
-
-      seenRecipeTitles.add(normalizedTitle);
-      validRecipes.push(candidateRecipe);
     }
 
-    if (validRecipes.length === 0) {
+    if (validationResult.validRecipes.length === 0) {
+      logRecipeDebug('validated-final-response', {
+        canMakeRecipe: false,
+        rejectedRecipes: validationResult.rejectedRecipes,
+      });
       return res.status(422).json({
         error: INVENTED_INGREDIENT_ERROR,
       });
     }
 
-    const recipes: RecipeResponse[] = await Promise.all(
-      validRecipes.slice(0, RECIPES_PER_REQUEST).map(async (candidateRecipe) => {
-        const recipePhoto = await getRecipePhoto(candidateRecipe.imageQuery);
-
-        return {
-          title: candidateRecipe.title,
-          prepTime: candidateRecipe.prepTime,
-          cookTime: candidateRecipe.cookTime,
-          servings: candidateRecipe.servings,
-          ingredients: candidateRecipe.ingredients,
-          directions: candidateRecipe.directions,
-          suggestions: candidateRecipe.suggestions,
-          imageQuery: candidateRecipe.imageQuery,
-          id: randomUUID(),
-          imageUrl: recipePhoto.imageUrl,
-          imageAttribution: recipePhoto.attribution,
-        };
-      })
+    const recipes = await Promise.all(
+      validationResult.validRecipes
+        .slice(0, RECIPES_PER_REQUEST)
+        .map(convertRecipeCandidateToResponse)
     );
+
+    logRecipeDebug('validated-final-response', {
+      canMakeRecipe: true,
+      recipes,
+      rejectedRecipes: validationResult.rejectedRecipes,
+    });
 
     return res.status(200).json({ recipes, recipe: recipes[0] });
   } catch (error: any) {
@@ -709,6 +354,10 @@ If the pantry items cannot make a realistic recipe, return JSON with this shape 
 
     if (error instanceof SyntaxError) {
       return res.status(502).json({ error: 'OpenAI returned a recipe that could not be read.' });
+    }
+
+    if (error instanceof Error && error.message === 'OpenAI did not return a recipe.') {
+      return res.status(502).json({ error: 'OpenAI did not return a recipe.' });
     }
 
     return res.status(500).json({ error: 'Unable to generate recipe ideas right now.' });
