@@ -45,6 +45,7 @@ export interface InventoryItem {
   date?: Timestamp | null;
   type: string;
   quantity?: number | null;
+  unit?: string | null;
 }
 
 const app = typeof window !== 'undefined' && isFirebaseConfigured ? initializeApp(firebaseConfig) : null;
@@ -70,6 +71,7 @@ const requireDb = (): Firestore => {
 export const signUp = async (email: string, password: string) => {
   const firebaseAuth = requireAuth();
   const firestore = requireDb();
+  await setPersistence(firebaseAuth, browserLocalPersistence);
   const userCredential = await createUserWithEmailAndPassword(firebaseAuth, email, password);
   const uid = userCredential.user.uid;
 
@@ -98,7 +100,7 @@ function capitalizeWords(input: string): string {
 }
 
 
-export const addItemToInventory = async (uid: string, date: Date | null, type: string, quantity: number | null) => {
+export const addItemToInventory = async (uid: string, date: Date | null, type: string, quantity: number | null, unit: string) => {
   const firestore = requireDb();
   const userCollection = collection(firestore, `users/${uid}/inventory`);
   const formattedType = capitalizeWords(type); // Capitalize and format the type string
@@ -116,6 +118,7 @@ export const addItemToInventory = async (uid: string, date: Date | null, type: s
     const updatePayload: {
       quantity?: number | null;
       date?: Timestamp | null;
+      unit?: string;
       updatedAt: Timestamp;
       type: string;
     } = {
@@ -131,6 +134,10 @@ export const addItemToInventory = async (uid: string, date: Date | null, type: s
       updatePayload.date = Timestamp.fromDate(date);
     }
 
+    if (unit) {
+      updatePayload.unit = unit;
+    }
+
     await updateDoc(doc(firestore, `users/${uid}/inventory/${existingItemDoc.id}`), updatePayload);
 
     return;
@@ -140,6 +147,7 @@ export const addItemToInventory = async (uid: string, date: Date | null, type: s
     date?: Timestamp | null;
     type: string;
     quantity?: number | null;
+    unit?: string;
   } = {
     type: formattedType
   };
@@ -152,6 +160,10 @@ export const addItemToInventory = async (uid: string, date: Date | null, type: s
     newItemPayload.quantity = quantity;
   }
 
+  if (unit) {
+    newItemPayload.unit = unit;
+  }
+
   // If item does not exist, add new item with formatted type
   await addDoc(userCollection, newItemPayload);
 };
@@ -161,22 +173,21 @@ export const removeItemFromInventory = async (uid: string, itemId: string) => {
   await deleteDoc(itemDoc);
 };
 
-export const editItemInInventory = async (uid: string, itemId: string, newType: string, newQuantity: number | null, newDate?: Date | null) => {
+export const editItemInInventory = async (uid: string, itemId: string, newType: string, newQuantity: number | null, newDate: Date | null, newUnit: string) => {
   const itemDoc = doc(requireDb(), `users/${uid}/inventory/${itemId}`);
   const updatePayload: {
     type: string;
     quantity: number | null;
-    date?: Timestamp | null;
+    date: Timestamp | null;
+    unit: string;
     updatedAt: Timestamp;
   } = {
     type: newType,
     quantity: newQuantity,
+    date: newDate ? Timestamp.fromDate(newDate) : null,
+    unit: newUnit,
     updatedAt: Timestamp.now() // Use Timestamp here
   };
-
-  if (newDate !== undefined) {
-    updatePayload.date = newDate ? Timestamp.fromDate(newDate) : null;
-  }
 
   await updateDoc(itemDoc, updatePayload);
 };
@@ -190,6 +201,7 @@ export const getUserInventory = async (uid: string): Promise<InventoryItem[]> =>
     date: doc.data().date as Timestamp | null | undefined,
     type: doc.data().type,
     quantity: doc.data().quantity ?? null,
+    unit: doc.data().unit ?? 'units',
   })) as InventoryItem[];
   return items;
 };

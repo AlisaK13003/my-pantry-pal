@@ -65,6 +65,7 @@ const Inventory = () => {
   const [recipeError, setRecipeError] = useState('');
   const [isGeneratingRecipe, setIsGeneratingRecipe] = useState(false);
   const [firebaseError, setFirebaseError] = useState('');
+  const [inventoryError, setInventoryError] = useState('');
   const [mode, setMode] = useState<'light' | 'dark'>('light');
   const [errors, setErrors] = useState<{ name: boolean }>({
     name: false,
@@ -93,14 +94,20 @@ const Inventory = () => {
   }, []);
 
   const loadInventory = async (uid:any) => {
-    const inventoryItems = await getUserInventory(uid);
-    setItems(inventoryItems.map(item => ({
-      id: item.itemId,
-      name: item.type,
-      quantity: item.quantity ?? null,
-      expirationDate: formatDate(item.date), // Use the updated formatDate function
-      unit: 'units',
-    })));
+    try {
+      const inventoryItems = await getUserInventory(uid);
+      setItems(inventoryItems.map(item => ({
+        id: item.itemId,
+        name: item.type,
+        quantity: item.quantity ?? null,
+        expirationDate: formatDate(item.date), // Use the updated formatDate function
+        unit: item.unit || 'units',
+      })));
+      setInventoryError('');
+    } catch (error) {
+      console.error('Failed to load inventory', error);
+      setInventoryError('Unable to load your pantry items right now.');
+    }
   };
   
 
@@ -126,8 +133,13 @@ const Inventory = () => {
 
   const handleDeleteItem = async (id: string) => {
     if (userId) {
-      await removeItemFromInventory(userId, id);
-      setItems(items.filter(item => item.id !== id));
+      try {
+        await removeItemFromInventory(userId, id);
+        await loadInventory(userId);
+      } catch (error) {
+        console.error('Failed to delete inventory item', error);
+        setInventoryError('Unable to delete that item right now.');
+      }
     }
   };
 
@@ -143,55 +155,27 @@ const Inventory = () => {
     setErrors(newErrors);
 
     if (!newErrors.name) {
-      const normalizedItemName = newItemName.trim().toLowerCase();
       const parsedQuantity = parseOptionalQuantity(newItemQuantity);
       const parsedDate = parseOptionalDate(newItemExpirationDate);
 
-      if (currentItem && userId) {
-        await editItemInInventory(userId, currentItem.id, newItemName, parsedQuantity, parsedDate);
-        setItems(items.map(item =>
-          item.id === currentItem.id
-            ? { ...item, name: newItemName.charAt(0).toUpperCase() + newItemName.slice(1), quantity: parsedQuantity, expirationDate: newItemExpirationDate, unit: newItemUnit }
-            : item
-        ));
-      } else if (userId) {
-        const existingItemIndex = items.findIndex(
-          item => item.name.toLowerCase() === normalizedItemName
-        );
-
-        if (existingItemIndex !== -1) {
-          const updatedItems = [...items];
-          const existingQuantity = updatedItems[existingItemIndex].quantity;
-          updatedItems[existingItemIndex].quantity = existingQuantity !== null && parsedQuantity !== null
-            ? existingQuantity + parsedQuantity
-            : parsedQuantity ?? existingQuantity;
-          if (newItemExpirationDate) {
-            updatedItems[existingItemIndex].expirationDate = newItemExpirationDate;
-          }
-          setItems(updatedItems);
-
-          await editItemInInventory(
-            userId,
-            items[existingItemIndex].id,
-            newItemName,
-            updatedItems[existingItemIndex].quantity,
-            newItemExpirationDate ? parsedDate : undefined
-          );
-        } else {
-          const newItem: Item = {
-            id: Date.now().toString(),
-            name: newItemName.charAt(0).toUpperCase() + newItemName.slice(1),
-            quantity: parsedQuantity,
-            expirationDate: newItemExpirationDate,
-            unit: newItemUnit,
-          };
-          setItems(prevItems => [...prevItems, newItem]);
-
-          await addItemToInventory(userId, parsedDate, newItemName, parsedQuantity);
-        }
+      if (!userId) {
+        setInventoryError('Please sign in before editing your pantry.');
+        return;
       }
 
-      setDialogOpen(false);
+      try {
+        if (currentItem) {
+          await editItemInInventory(userId, currentItem.id, newItemName, parsedQuantity, parsedDate, newItemUnit);
+        } else {
+          await addItemToInventory(userId, parsedDate, newItemName, parsedQuantity, newItemUnit);
+        }
+
+        await loadInventory(userId);
+        setDialogOpen(false);
+      } catch (error) {
+        console.error('Failed to save inventory item', error);
+        setInventoryError('Unable to save that item. Please try again.');
+      }
     }
   };
 
@@ -332,6 +316,11 @@ const Inventory = () => {
           {recipeError && (
             <Alert severity="warning" sx={{ marginBottom: '20px' }}>
               {recipeError}
+            </Alert>
+          )}
+          {inventoryError && (
+            <Alert severity="error" sx={{ marginBottom: '20px' }}>
+              {inventoryError}
             </Alert>
           )}
           <Box style={{ maxHeight: '600px', overflowY: items.length > 0 ? 'auto' : 'hidden', padding: '10px' }}>
