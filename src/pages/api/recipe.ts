@@ -26,6 +26,25 @@ interface RecipeResponse {
   imageUrl: string;
 }
 
+interface NoRecipeCandidate {
+  canMakeRecipe: false;
+  reason?: string;
+}
+
+interface RecipeCandidate {
+  canMakeRecipe: true;
+  title: string;
+  prepTime: string;
+  cookTime: string;
+  servings: string;
+  ingredients: string[];
+  directions: string[];
+  suggestions: string;
+  imageQuery: string;
+}
+
+type RecipeGenerationResult = RecipeCandidate | NoRecipeCandidate;
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -47,12 +66,22 @@ const isPantryItem = (item: unknown): item is PantryItemInput => {
   );
 };
 
-const isRecipeResponse = (recipe: unknown): recipe is RecipeResponse => {
+const isRecipeGenerationResult = (recipe: unknown): recipe is RecipeGenerationResult => {
   if (!recipe || typeof recipe !== 'object') {
     return false;
   }
 
-  const candidate = recipe as Partial<RecipeResponse>;
+  const candidate = recipe as Partial<RecipeGenerationResult>;
+
+  if (typeof candidate.canMakeRecipe !== 'boolean') {
+    return false;
+  }
+
+  if (!candidate.canMakeRecipe) {
+    const noRecipe = candidate as Partial<NoRecipeCandidate>;
+    return noRecipe.reason === undefined || typeof noRecipe.reason === 'string';
+  }
+
   return (
     typeof candidate.title === 'string' &&
     candidate.title.trim().length > 0 &&
@@ -64,7 +93,8 @@ const isRecipeResponse = (recipe: unknown): recipe is RecipeResponse => {
     Array.isArray(candidate.directions) &&
     candidate.directions.every((step) => typeof step === 'string') &&
     typeof candidate.suggestions === 'string' &&
-    typeof candidate.imageQuery === 'string'
+    typeof candidate.imageQuery === 'string' &&
+    candidate.imageQuery.trim().length > 0
   );
 };
 
@@ -141,11 +171,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       {
         role: 'system',
         content:
-          'You are a practical home cooking assistant. Return only valid JSON that matches the requested shape. Keep recipes realistic, detailed, and beginner-friendly for a normal home kitchen.',
+          'You are a practical home cooking assistant. Return only valid JSON that matches the requested shape. Keep recipes realistic, detailed, appetizing, and beginner-friendly for a normal home kitchen. Never invent joke, novelty, gross, or incompatible food pairings just to use the available ingredients.',
       },
       {
         role: 'user',
-        content: `Create one satisfying recipe using some of these pantry items. The recipe does not need to use every item.
+        content: `Decide whether these pantry items can make one realistic, recognizable, appetizing recipe.
+
+Rules:
+- A valid recipe must use at least 3 compatible pantry items from the list.
+- Basic staples like water, salt, pepper, and oil do not count toward the 3 compatible pantry items.
+- Do not combine ingredients that clash just because they are present.
+- If the list cannot make a sensible recipe, return canMakeRecipe false with a short reason.
+- If it can, create one satisfying recipe. The recipe does not need to use every item.
 
 Make it useful for someone who is not very confident at cooking:
 - include realistic amounts
@@ -159,6 +196,7 @@ ${formatPantryItems(validPantryItems)}
 
 Return JSON with this shape:
 {
+  "canMakeRecipe": true,
   "title": "Recipe name",
   "prepTime": "10 minutes",
   "cookTime": "20 minutes",
@@ -167,6 +205,12 @@ Return JSON with this shape:
   "directions": ["clear beginner-friendly step 1", "clear beginner-friendly step 2"],
   "suggestions": "Two or three helpful sentences about substitutions, serving, or storage.",
   "imageQuery": "short visual search phrase for this dish, like creamy tomato pasta"
+}
+
+If the pantry items cannot make a realistic recipe, return JSON with this shape instead:
+{
+  "canMakeRecipe": false,
+  "reason": "Could not make a realistic recipe from these ingredients."
 }`,
       },
     ],
@@ -185,12 +229,25 @@ Return JSON with this shape:
 
     const parsedRecipe = JSON.parse(content);
 
-    if (!isRecipeResponse(parsedRecipe)) {
+    if (!isRecipeGenerationResult(parsedRecipe)) {
       return res.status(502).json({ error: 'OpenAI returned an unexpected recipe format.' });
     }
 
+    if (!parsedRecipe.canMakeRecipe) {
+      return res.status(422).json({
+        error: parsedRecipe.reason || 'Could not generate a realistic recipe. Please try adding more compatible ingredients.',
+      });
+    }
+
     const recipe: RecipeResponse = {
-      ...parsedRecipe,
+      title: parsedRecipe.title,
+      prepTime: parsedRecipe.prepTime,
+      cookTime: parsedRecipe.cookTime,
+      servings: parsedRecipe.servings,
+      ingredients: parsedRecipe.ingredients,
+      directions: parsedRecipe.directions,
+      suggestions: parsedRecipe.suggestions,
+      imageQuery: parsedRecipe.imageQuery,
       id: randomUUID(),
       imageUrl: buildRecipeImageUrl(parsedRecipe.imageQuery),
     };
