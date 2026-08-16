@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { ThemeProvider } from '@mui/material/styles';
-import { Alert, AppBar, Toolbar, Typography, Container, TextField, Grid, Paper, IconButton, Button, Dialog, DialogTitle, DialogContent, DialogActions, InputAdornment, Box, Divider, Select, MenuItem, Tooltip } from '@mui/material';
-import { Add, Edit, Delete, CameraAlt, UploadFile, Brightness4, Brightness7, Logout } from '@mui/icons-material';
+import { Alert, AppBar, Toolbar, Typography, Container, TextField, Grid, Paper, IconButton, Button, Dialog, DialogTitle, DialogContent, DialogActions, InputAdornment, Box, Divider, Select, MenuItem, Tooltip, Menu } from '@mui/material';
+import { Add, Edit, Delete, CameraAlt, UploadFile, Brightness4, Brightness7, AccountCircle, Logout } from '@mui/icons-material';
 import { createMyTheme } from '../styles/theme';
 import { auth, addItemToInventory, removeItemFromInventory, editItemInInventory, getUserInventory, isFirebaseConfigured, logOut } from '../firebase'; // Adjust the import path as needed
 import { onAuthStateChanged } from 'firebase/auth';
@@ -141,6 +141,7 @@ const Inventory = () => {
   const [firebaseError, setFirebaseError] = useState('');
   const [inventoryError, setInventoryError] = useState('');
   const [mode, setMode] = useState<'light' | 'dark'>('light');
+  const [accountMenuAnchor, setAccountMenuAnchor] = useState<null | HTMLElement>(null);
   const [errors, setErrors] = useState<{ name: boolean }>({
     name: false,
   });
@@ -152,6 +153,7 @@ const Inventory = () => {
     () => recipes.filter((recipe) => recipe.pantrySignature === pantrySignature),
     [pantrySignature, recipes]
   );
+  const accountMenuOpen = Boolean(accountMenuAnchor);
 
   useEffect(() => {
     if (!isFirebaseConfigured || !auth) {
@@ -396,8 +398,17 @@ const Inventory = () => {
     setMode(prevMode => (prevMode === 'light' ? 'dark' : 'light'));
   };
 
+  const handleAccountMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setAccountMenuAnchor(event.currentTarget);
+  };
+
+  const handleAccountMenuClose = () => {
+    setAccountMenuAnchor(null);
+  };
+
   const handleSignOut = async () => {
     try {
+      handleAccountMenuClose();
       await logOut();
       setUserId(null);
       setItems([]);
@@ -436,11 +447,31 @@ const Inventory = () => {
                     {mode === 'light' ? <Brightness4 /> : <Brightness7 />}
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Sign out">
-                  <IconButton color="inherit" onClick={handleSignOut} aria-label="sign out">
-                    <Logout />
+                <Tooltip title="Account">
+                  <IconButton
+                    color="inherit"
+                    onClick={handleAccountMenuOpen}
+                    aria-label="open account menu"
+                    aria-controls={accountMenuOpen ? 'account-menu' : undefined}
+                    aria-haspopup="true"
+                    aria-expanded={accountMenuOpen ? 'true' : undefined}
+                  >
+                    <AccountCircle />
                   </IconButton>
                 </Tooltip>
+                <Menu
+                  id="account-menu"
+                  anchorEl={accountMenuAnchor}
+                  open={accountMenuOpen}
+                  onClose={handleAccountMenuClose}
+                  anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                  transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                >
+                  <MenuItem onClick={handleSignOut}>
+                    <Logout fontSize="small" sx={{ marginRight: 1 }} />
+                    Sign out
+                  </MenuItem>
+                </Menu>
               </Box>
             </Toolbar>
           </Container>
