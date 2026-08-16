@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/router';
 import { ThemeProvider } from '@mui/material/styles';
-import { Alert, AppBar, Toolbar, Typography, Container, TextField, Grid, Paper, IconButton, Button, Dialog, DialogTitle, DialogContent, DialogActions, InputAdornment, Box, Divider, Select, MenuItem } from '@mui/material';
-import { Add, Edit, Delete, CameraAlt, UploadFile, Brightness4, Brightness7, AccountCircle } from '@mui/icons-material';
+import { Alert, AppBar, Toolbar, Typography, Container, TextField, Grid, Paper, IconButton, Button, Dialog, DialogTitle, DialogContent, DialogActions, InputAdornment, Box, Divider, Select, MenuItem, Tooltip } from '@mui/material';
+import { Add, Edit, Delete, CameraAlt, UploadFile, Brightness4, Brightness7, Logout } from '@mui/icons-material';
 import { createMyTheme } from '../styles/theme';
-import { auth, addItemToInventory, removeItemFromInventory, editItemInInventory, getUserInventory, isFirebaseConfigured } from '../firebase'; // Adjust the import path as needed
+import { auth, addItemToInventory, removeItemFromInventory, editItemInInventory, getUserInventory, isFirebaseConfigured, logOut } from '../firebase'; // Adjust the import path as needed
 import { onAuthStateChanged } from 'firebase/auth';
 import AutoAwesome from '@mui/icons-material/AutoAwesome';
 
@@ -102,6 +103,8 @@ const buildRecipeFallbackImage = (title: string) => {
 };
 
 const Inventory = () => {
+  const router = useRouter();
+
   const formatDate = (date:any) => {
     if (!date || !date.seconds) {
       return '';
@@ -163,6 +166,9 @@ const Inventory = () => {
       } else {
         setUserId(null);
         setItems([]);
+        setRecipes([]);
+        setCurrentRecipe(null);
+        setRecipeDialogOpen(false);
       }
     });
 
@@ -374,6 +380,23 @@ const Inventory = () => {
     setMode(prevMode => (prevMode === 'light' ? 'dark' : 'light'));
   };
 
+  const handleSignOut = async () => {
+    try {
+      await logOut();
+      setUserId(null);
+      setItems([]);
+      setRecipes([]);
+      setCurrentItem(null);
+      setCurrentRecipe(null);
+      setDialogOpen(false);
+      setRecipeDialogOpen(false);
+      await router.push('/');
+    } catch (error) {
+      console.error('Failed to sign out', error);
+      setInventoryError('Unable to sign out right now. Please try again.');
+    }
+  };
+
   const filteredItems = items.filter(item => item.name.toLowerCase().includes(search.toLowerCase()));
 
   // Define colors for different modes
@@ -392,12 +415,16 @@ const Inventory = () => {
                 </Typography>
               </Box>
               <Box style={{ display: 'flex', alignItems: 'center' }}>
-                <IconButton color="inherit" onClick={handleToggleMode}>
-                  {mode === 'light' ? <Brightness4 /> : <Brightness7 />}
-                </IconButton>
-                <IconButton color="inherit">
-                  <AccountCircle />
-                </IconButton>
+                <Tooltip title={mode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}>
+                  <IconButton color="inherit" onClick={handleToggleMode} aria-label="toggle light and dark mode">
+                    {mode === 'light' ? <Brightness4 /> : <Brightness7 />}
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Sign out">
+                  <IconButton color="inherit" onClick={handleSignOut} aria-label="sign out">
+                    <Logout />
+                  </IconButton>
+                </Tooltip>
               </Box>
             </Toolbar>
           </Container>

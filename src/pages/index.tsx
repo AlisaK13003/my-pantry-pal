@@ -5,10 +5,15 @@ import Features from '../components/sections/Features';
 import Contact from '../components/sections/Contact';
 import Footer from '../components/sections/Footer';
 
-export default function Home() {
+interface HomeProps {
+  appMode: 'light' | 'dark';
+  onToggleAppMode: () => void;
+}
+
+export default function Home({ appMode, onToggleAppMode }: HomeProps) {
   return (
     <>
-      <Navbar />
+      <Navbar mode={appMode} onToggleMode={onToggleAppMode} />
       <main>
         <Hero />
         <Features />

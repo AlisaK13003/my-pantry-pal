@@ -5,12 +5,21 @@ import Box from '@mui/material/Box';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import { useTheme } from '@mui/material/styles';
+import Brightness4 from '@mui/icons-material/Brightness4';
+import Brightness7 from '@mui/icons-material/Brightness7';
 import { Link } from 'react-scroll';
 import SignInSignUpModal from "../ui/SignupPopup";
   // Make sure this path is correct
 
-export default function Navbar() {
+interface NavbarProps {
+  mode: 'light' | 'dark';
+  onToggleMode: () => void;
+}
+
+export default function Navbar({ mode, onToggleMode }: NavbarProps) {
   const [elevated, setElevated] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const theme = useTheme();
@@ -60,6 +69,11 @@ export default function Navbar() {
             <Link to="Contact" spy={true} smooth={true} offset={-70} duration={1200}>
               <Typography sx={{ fontSize: '1rem', marginRight: 2, cursor: 'pointer' }}>Contact</Typography>
             </Link>
+            <Tooltip title={mode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}>
+              <IconButton color="inherit" onClick={onToggleMode} aria-label="toggle light and dark mode">
+                {mode === 'light' ? <Brightness4 /> : <Brightness7 />}
+              </IconButton>
+            </Tooltip>
             <Button onClick={handleOpenModal} variant="outlined" color="inherit" sx={{
               textTransform: 'none',
               fontSize: '1rem',
