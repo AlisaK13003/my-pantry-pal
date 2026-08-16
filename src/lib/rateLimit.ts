@@ -2,6 +2,8 @@ import { Ratelimit, type Duration } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 
 const configuredRecipeRateLimitMaxRequests = Number(process.env.RECIPE_RATE_LIMIT_MAX_REQUESTS);
+const redisRestUrl = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+const redisRestToken = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 
 export const RECIPE_RATE_LIMIT_MAX_REQUESTS =
   Number.isFinite(configuredRecipeRateLimitMaxRequests) && configuredRecipeRateLimitMaxRequests > 0
@@ -10,12 +12,14 @@ export const RECIPE_RATE_LIMIT_MAX_REQUESTS =
 
 export const RECIPE_RATE_LIMIT_WINDOW: Duration = '10 m';
 
-export const hasUpstashRateLimitConfig = Boolean(
-  process.env.UPSTASH_REDIS_REST_URL &&
-  process.env.UPSTASH_REDIS_REST_TOKEN
-);
+export const hasUpstashRateLimitConfig = Boolean(redisRestUrl && redisRestToken);
 
-const redis = hasUpstashRateLimitConfig ? Redis.fromEnv() : null;
+const redis = hasUpstashRateLimitConfig
+  ? new Redis({
+      url: redisRestUrl as string,
+      token: redisRestToken as string,
+    })
+  : null;
 
 export const recipeRatelimit = redis
   ? new Ratelimit({

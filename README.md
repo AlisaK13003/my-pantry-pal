@@ -163,6 +163,10 @@ PEXELS_API_KEY=
 UPSTASH_REDIS_REST_URL=
 UPSTASH_REDIS_REST_TOKEN=
 
+# Also supported if Vercel/Upstash creates these names instead
+KV_REST_API_URL=
+KV_REST_API_TOKEN=
+
 # Optional: defaults to 5 requests per 10 minutes
 RECIPE_RATE_LIMIT_MAX_REQUESTS=5
 ```

@@ -334,7 +334,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (shouldRequireUpstashRateLimit && !hasUpstashRateLimitConfig) {
     return res.status(500).json({
-      error: 'Recipe rate limiting is not configured yet. Add the Upstash Redis REST variables in Vercel.',
+      error: 'Recipe rate limiting is not configured in this deployment. Add the Upstash Redis REST variables in Vercel, then redeploy.',
     });
   }
 
