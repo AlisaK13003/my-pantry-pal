@@ -4,6 +4,16 @@ My Pantry Pal is a pantry-management web app for keeping track of what food you 
 
 I built it as a full-stack Next.js/TypeScript project with Firebase Authentication, per-user Firestore storage, Material UI, and a server-side recipe API powered by OpenAI. The recipe feature is designed to be practical: it looks for compatible groups of pantry items, avoids recipes that require ingredients you do not have, and does not try to force every item in your pantry into one strange dish.
 
+## Screenshots
+
+**Pantry dashboard**
+
+<img src="public/assets/images/my-pantry-pal-dashboard.png" alt="My Pantry Pal pantry dashboard showing inventory cards and generated recipe ideas" width="900" />
+
+**Landing page**
+
+<img src="public/assets/images/my-pantry-pal-home.png" alt="My Pantry Pal landing page" width="900" />
+
 ## What It Does
 
 - Lets users sign up, sign in, and sign out with Firebase Authentication
