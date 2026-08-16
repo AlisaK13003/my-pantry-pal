@@ -302,6 +302,20 @@ const recipeIngredientIsAllowed = (ingredient: string, pantryItems: PantryItemIn
 const getInventedIngredients = (recipe: RecipeCandidate, pantryItems: PantryItemInput[]) =>
   recipe.ingredients.filter((ingredient) => !recipeIngredientIsAllowed(ingredient, pantryItems));
 
+const normalizeRecipeTitle = (title: string) =>
+  title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => (word.endsWith('s') && word.length > 3 ? word.slice(0, -1) : word))
+    .join(' ');
+
+const isDuplicateRecipeTitle = (title: string, excludedRecipeTitles: string[]) => {
+  const normalizedTitle = normalizeRecipeTitle(title);
+  return excludedRecipeTitles.some((excludedTitle) => normalizeRecipeTitle(excludedTitle) === normalizedTitle);
+};
+
 const hasObviousIncompatiblePairing = (recipe: RecipeCandidate) => {
   const recipeText = [
     recipe.title,
@@ -468,6 +482,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const pantryItems = req.body?.pantry_items;
+  const excludedRecipeTitles = Array.isArray(req.body?.excluded_recipe_titles)
+    ? req.body.excluded_recipe_titles.filter((title: unknown): title is string => typeof title === 'string')
+    : [];
 
   if (!Array.isArray(pantryItems)) {
     return res.status(400).json({ error: 'Pantry items must be sent as a list.' });
@@ -501,6 +518,7 @@ Rules:
 - Ignore unrelated snack, candy, dessert, or fruit ingredients when they do not fit the main dish.
 - Do not add a separate dessert or side just to use an incompatible ingredient.
 - Never combine seafood or meat with chocolate, marshmallows, candy, or other dessert ingredients.
+- Do not return any recipe whose title is already listed in "Already shown recipe titles."
 - If the list cannot make a sensible recipe, return canMakeRecipe false with a short reason.
 - If it can, create one satisfying recipe. The recipe does not need to use every item.
 
@@ -513,6 +531,9 @@ Make it useful for someone who is not very confident at cooking:
 
 Pantry items:
 ${formatPantryItems(validPantryItems)}
+
+Already shown recipe titles:
+${excludedRecipeTitles.length > 0 ? excludedRecipeTitles.join('\n') : 'None'}
 
 Return JSON with this shape:
 {
@@ -562,6 +583,12 @@ If the pantry items cannot make a realistic recipe, return JSON with this shape 
     if (hasObviousIncompatiblePairing(parsedRecipe)) {
       return res.status(422).json({
         error: INCOMPATIBLE_RECIPE_ERROR,
+      });
+    }
+
+    if (isDuplicateRecipeTitle(parsedRecipe.title, excludedRecipeTitles)) {
+      return res.status(409).json({
+        error: 'That recipe idea is already shown. Try again for a different one.',
       });
     }
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ThemeProvider } from '@mui/material/styles';
 import { Alert, AppBar, Toolbar, Typography, Container, TextField, Grid, Paper, IconButton, Button, Dialog, DialogTitle, DialogContent, DialogActions, InputAdornment, Box, Divider, Select, MenuItem } from '@mui/material';
 import { Add, Edit, Delete, CameraAlt, UploadFile, Brightness4, Brightness7, AccountCircle } from '@mui/icons-material';
@@ -26,6 +26,7 @@ interface Recipe {
   directions: string[];
   suggestions: string;
   imageUrl: string;
+  pantrySignature: string;
   imageAttribution?: {
     photographer: string;
     photographerUrl: string;
@@ -35,6 +36,22 @@ interface Recipe {
 }
 
 const MIN_RECIPE_ITEMS = 5;
+
+const buildPantrySignature = (items: Item[]) =>
+  items
+    .map((item) => item.name.trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join('|');
+
+const normalizeRecipeTitle = (title: string) =>
+  title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => (word.endsWith('s') && word.length > 3 ? word.slice(0, -1) : word))
+    .join(' ');
 
 const getFirebaseErrorMessage = (error: unknown, fallback: string) => {
   const firebaseError = error as { code?: string; message?: string };
@@ -127,6 +144,11 @@ const Inventory = () => {
   const [userId, setUserId] = useState<string | null>(null);
 
   const theme = createMyTheme(mode);
+  const pantrySignature = useMemo(() => buildPantrySignature(items), [items]);
+  const visibleRecipes = useMemo(
+    () => recipes.filter((recipe) => recipe.pantrySignature === pantrySignature),
+    [pantrySignature, recipes]
+  );
 
   useEffect(() => {
     if (!isFirebaseConfigured || !auth) {
@@ -146,6 +168,13 @@ const Inventory = () => {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (currentRecipe && currentRecipe.pantrySignature !== pantrySignature) {
+      setRecipeDialogOpen(false);
+      setCurrentRecipe(null);
+    }
+  }, [currentRecipe, pantrySignature]);
 
   const loadInventory = async (uid:any) => {
     try {
@@ -258,12 +287,16 @@ const Inventory = () => {
     setIsGeneratingRecipe(true);
 
     try {
+      const existingRecipeTitles = visibleRecipes.map((recipe) => recipe.title);
       const response = await fetch('/api/recipe', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ pantry_items: items }),
+        body: JSON.stringify({
+          pantry_items: items,
+          excluded_recipe_titles: existingRecipeTitles,
+        }),
       });
 
       const result = await response.json();
@@ -279,10 +312,27 @@ const Inventory = () => {
           directions: result.recipe.directions,
           suggestions: result.recipe.suggestions,
           imageUrl: result.recipe.imageUrl,
+          pantrySignature,
           imageAttribution: result.recipe.imageAttribution ?? null,
         };
 
-        setRecipes((prevRecipes) => [...prevRecipes, newRecipe]);
+        const isDuplicate = visibleRecipes.some(
+          (recipe) => normalizeRecipeTitle(recipe.title) === normalizeRecipeTitle(newRecipe.title)
+        );
+
+        if (isDuplicate) {
+          setRecipeError('That recipe idea is already shown. Try again for a different one.');
+          return;
+        }
+
+        setRecipes((prevRecipes) => [
+          ...prevRecipes.filter(
+            (recipe) =>
+              recipe.pantrySignature !== pantrySignature ||
+              normalizeRecipeTitle(recipe.title) !== normalizeRecipeTitle(newRecipe.title)
+          ),
+          newRecipe,
+        ]);
       } else {
         setRecipeError(result.error || 'Unable to generate recipe ideas right now.');
         console.error('Error fetching recipes:', result.error);
@@ -444,13 +494,13 @@ const Inventory = () => {
             Recipe Ideas
           </Typography>
           <Box style={{ padding: '10px' }}>
-            {recipes.length === 0 && (
+            {visibleRecipes.length === 0 && (
               <Typography variant="body1" align="center" style={{ fontStyle: 'italic', color: theme.palette.text.primary }}>
                 Add at least 5 pantry items, then generate a recipe idea here.
               </Typography>
             )}
             <Grid container spacing={3}>
-              {recipes.map((recipe) => (
+              {visibleRecipes.map((recipe) => (
               <Grid item xs={12} sm={6} md={6} key={recipe.id}>
                 <Paper style={{ minHeight: '280px', cursor: 'pointer', backgroundColor: theme.palette.background.paper, overflow: 'hidden' }} onClick={() => handleRecipeClick(recipe)}>
                   <Box
