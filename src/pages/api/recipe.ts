@@ -79,8 +79,37 @@ const formatPantryItems = (items: PantryItemInput[]) =>
     .join('\n');
 
 const buildRecipeImageUrl = (imageQuery: string) => {
-  const query = encodeURIComponent(`${imageQuery} plated food`);
-  return `https://source.unsplash.com/900x520/?${query}`;
+  const encodedTitle = imageQuery
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520">
+      <defs>
+        <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0%" stop-color="#f7d9a8"/>
+          <stop offset="52%" stop-color="#d7efe7"/>
+          <stop offset="100%" stop-color="#f4a6a6"/>
+        </linearGradient>
+      </defs>
+      <rect width="900" height="520" fill="url(#bg)"/>
+      <circle cx="710" cy="145" r="90" fill="#ffffff" opacity="0.42"/>
+      <circle cx="205" cy="360" r="120" fill="#ffffff" opacity="0.32"/>
+      <ellipse cx="450" cy="290" rx="235" ry="78" fill="#ffffff" opacity="0.82"/>
+      <ellipse cx="450" cy="285" rx="185" ry="48" fill="#f8eee1"/>
+      <path d="M310 284c74-58 201-58 280 0" fill="none" stroke="#d8845d" stroke-width="20" stroke-linecap="round"/>
+      <path d="M328 308c68-42 176-42 244 0" fill="none" stroke="#c8a24a" stroke-width="16" stroke-linecap="round"/>
+      <circle cx="388" cy="272" r="20" fill="#b95b47"/>
+      <circle cx="500" cy="270" r="20" fill="#b95b47"/>
+      <circle cx="455" cy="318" r="18" fill="#6f9b63"/>
+      <text x="450" y="92" text-anchor="middle" font-family="Arial, sans-serif" font-size="36" font-weight="700" fill="#3c2f21">${encodedTitle}</text>
+      <text x="450" y="438" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="#3c2f21" opacity="0.72">Recipe idea from your pantry</text>
+    </svg>
+  `;
+
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
