@@ -2,6 +2,13 @@ import { OpenAI } from 'openai';
 import { NextApiRequest, NextApiResponse } from 'next';
 import { ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/completions';
 import { randomUUID } from 'crypto';
+import { verifyFirebaseIdToken } from '@/lib/firebaseToken';
+import {
+  hasUpstashRateLimitConfig,
+  recipeRatelimit,
+  RECIPE_RATE_LIMIT_MAX_REQUESTS,
+  shouldRequireUpstashRateLimit,
+} from '@/lib/rateLimit';
 import {
   buildRecipePrompt,
   buildSupplementalRecipePrompt,
@@ -22,6 +29,15 @@ import {
 } from '@/lib/recipeGeneration';
 
 const OPENAI_MODEL = process.env.OPENAI_RECIPE_MODEL || 'gpt-4o-mini';
+
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '20kb',
+    },
+  },
+  maxDuration: 30,
+};
 
 interface RecipeResponse {
   id: string;
@@ -71,6 +87,61 @@ const openai = new OpenAI({
 
 const logRecipeDebug = (stage: string, data: unknown) => {
   console.debug(`[recipe-generation:${stage}]`, data);
+};
+
+const getClientIp = (req: NextApiRequest) => {
+  const forwardedFor = req.headers['x-forwarded-for'];
+  const forwardedIp = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
+  const firstForwardedIp = forwardedIp?.split(',')[0]?.trim();
+
+  return firstForwardedIp || req.socket.remoteAddress || 'unknown';
+};
+
+const getBearerToken = (req: NextApiRequest) => {
+  const authorizationHeader = req.headers.authorization;
+
+  if (!authorizationHeader?.startsWith('Bearer ')) {
+    return null;
+  }
+
+  return authorizationHeader.slice('Bearer '.length).trim() || null;
+};
+
+const setRecipeRateLimitHeaders = (
+  res: NextApiResponse,
+  rateLimit: {
+    limit: number;
+    remaining: number;
+    reset: number;
+  }
+) => {
+  res.setHeader('X-RateLimit-Limit', rateLimit.limit.toString());
+  res.setHeader('X-RateLimit-Remaining', rateLimit.remaining.toString());
+  res.setHeader('X-RateLimit-Reset', Math.ceil(rateLimit.reset / 1000).toString());
+};
+
+const getErrorStatus = (error: unknown) => {
+  const candidate = error as { status?: unknown };
+  return typeof candidate?.status === 'number' ? candidate.status : null;
+};
+
+const getErrorCode = (error: unknown) => {
+  const candidate = error as { code?: unknown };
+  return typeof candidate?.code === 'string' ? candidate.code : null;
+};
+
+const isTimeoutLikeError = (error: unknown) => {
+  const candidate = error as { message?: unknown; name?: unknown };
+  const message = typeof candidate?.message === 'string' ? candidate.message : '';
+  const name = typeof candidate?.name === 'string' ? candidate.name : '';
+  const code = getErrorCode(error);
+
+  return (
+    code === 'ETIMEDOUT' ||
+    code === 'ECONNABORTED' ||
+    name === 'AbortError' ||
+    /timed?\s*out|timeout/i.test(message)
+  );
 };
 
 const buildRecipeImageUrl = (imageQuery: string) => {
@@ -261,6 +332,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: 'Recipe generation is not configured yet.' });
   }
 
+  if (shouldRequireUpstashRateLimit && !hasUpstashRateLimitConfig) {
+    return res.status(500).json({
+      error: 'Recipe rate limiting is not configured yet. Add the Upstash Redis REST variables in Vercel.',
+    });
+  }
+
+  const idToken = getBearerToken(req);
+
+  if (!idToken) {
+    return res.status(401).json({ error: 'Please sign in again before generating recipe ideas.' });
+  }
+
+  let verifiedUser;
+
+  try {
+    verifiedUser = await verifyFirebaseIdToken(idToken);
+  } catch (authError) {
+    console.error('Firebase token verification failed', authError);
+    return res.status(500).json({ error: 'Unable to verify your sign-in right now.' });
+  }
+
+  if (!verifiedUser) {
+    return res.status(401).json({ error: 'Please sign in again before generating recipe ideas.' });
+  }
+
   const pantryItems = req.body?.pantry_items;
   const excludedRecipeTitles = Array.isArray(req.body?.excluded_recipe_titles)
     ? req.body.excluded_recipe_titles.filter((title: unknown): title is string => typeof title === 'string')
@@ -276,6 +372,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({
       error: `Add at least ${MIN_RECIPE_ITEMS} ingredients before generating recipe ideas.`,
     });
+  }
+
+  if (recipeRatelimit) {
+    try {
+      const rateLimit = await recipeRatelimit.limit(`${verifiedUser.uid}:${getClientIp(req)}`);
+      void rateLimit.pending.catch((pendingError) => {
+        console.warn('Unable to record recipe rate-limit analytics', pendingError);
+      });
+      setRecipeRateLimitHeaders(res, rateLimit);
+
+      if (!rateLimit.success) {
+        const retryAfterSeconds = Math.max(Math.ceil((rateLimit.reset - Date.now()) / 1000), 1);
+        res.setHeader('Retry-After', retryAfterSeconds.toString());
+
+        return res.status(429).json({
+          error: 'Too many recipe requests. Please try again in a few minutes.',
+        });
+      }
+    } catch (rateLimitError) {
+      console.error('Recipe rate limit check failed', rateLimitError);
+      return res.status(500).json({ error: 'Recipe rate limiting is unavailable right now.' });
+    }
+  } else {
+    res.setHeader('X-RateLimit-Limit', RECIPE_RATE_LIMIT_MAX_REQUESTS.toString());
+    res.setHeader('X-RateLimit-Remaining', RECIPE_RATE_LIMIT_MAX_REQUESTS.toString());
   }
 
   try {
@@ -427,21 +548,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ recipes, recipe: recipes[0] });
   } catch (error: any) {
     console.error('Error in POST /api/recipe', error);
+    const errorStatus = getErrorStatus(error);
 
-    if (error?.status === 401) {
+    if (isTimeoutLikeError(error) || errorStatus === 408) {
+      return res.status(504).json({
+        error: 'Recipe generation took too long. Please try again with fewer pantry items or wait a moment.',
+      });
+    }
+
+    if (errorStatus === 400) {
+      return res.status(502).json({
+        error: 'OpenAI rejected the recipe request. Check OPENAI_RECIPE_MODEL in Vercel, or remove it to use the default model.',
+      });
+    }
+
+    if (errorStatus === 401) {
       return res.status(500).json({ error: 'The OpenAI API key is invalid.' });
     }
 
-    if (error?.status === 403) {
+    if (errorStatus === 403) {
       return res.status(500).json({ error: 'This OpenAI API key does not have permission to generate recipes.' });
     }
 
-    if (error?.status === 404) {
+    if (errorStatus === 404) {
       return res.status(500).json({ error: `The OpenAI model "${OPENAI_MODEL}" is not available for this account.` });
     }
 
-    if (error?.status === 429) {
+    if (errorStatus === 429) {
       return res.status(500).json({ error: 'OpenAI could not generate a recipe because the account hit a usage or billing limit.' });
+    }
+
+    if (errorStatus && errorStatus >= 500) {
+      return res.status(502).json({ error: 'OpenAI is having trouble generating recipe ideas right now. Please try again shortly.' });
     }
 
     if (error instanceof SyntaxError) {

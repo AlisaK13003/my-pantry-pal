@@ -38,6 +38,12 @@ interface Recipe {
 
 const MIN_RECIPE_ITEMS = 5;
 
+interface RecipeApiResult {
+  recipes?: Recipe[];
+  recipe?: Recipe;
+  error?: string;
+}
+
 const buildPantrySignature = (items: Item[]) =>
   items
     .map((item) => item.name.trim().toLowerCase())
@@ -66,6 +72,46 @@ const getFirebaseErrorMessage = (error: unknown, fallback: string) => {
   }
 
   return firebaseError.message || fallback;
+};
+
+const getRecipeRequestErrorMessage = (status: number) => {
+  if (status === 401) {
+    return 'Please sign in again before generating recipe ideas.';
+  }
+
+  if (status === 429) {
+    return 'Too many recipe requests. Please try again in a few minutes.';
+  }
+
+  if (status === 504) {
+    return 'Recipe generation took too long. Please try again with fewer pantry items or wait a moment.';
+  }
+
+  if (status >= 500) {
+    return 'The recipe service had trouble responding. Please try again in a moment.';
+  }
+
+  return 'Unable to generate recipe ideas right now.';
+};
+
+const readRecipeResponse = async (response: Response): Promise<RecipeApiResult> => {
+  const responseText = await response.text();
+
+  if (!responseText) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(responseText) as RecipeApiResult;
+  } catch (error) {
+    if (!response.ok) {
+      return {
+        error: getRecipeRequestErrorMessage(response.status),
+      };
+    }
+
+    throw error;
+  }
 };
 
 const buildRecipeFallbackImage = (title: string) => {
@@ -296,10 +342,18 @@ const Inventory = () => {
 
     try {
       const existingRecipeTitles = visibleRecipes.map((recipe) => recipe.title);
+      const token = await auth?.currentUser?.getIdToken();
+
+      if (!token) {
+        setRecipeError('Please sign in again before generating recipe ideas.');
+        return;
+      }
+
       const response = await fetch('/api/recipe', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           pantry_items: items,
@@ -307,7 +361,7 @@ const Inventory = () => {
         }),
       });
 
-      const result = await response.json();
+      const result = await readRecipeResponse(response);
 
       if (response.ok) {
         const generatedRecipes = Array.isArray(result.recipes)
@@ -358,8 +412,9 @@ const Inventory = () => {
           ...uniqueNewRecipes,
         ]);
       } else {
-        setRecipeError(result.error || 'Unable to generate recipe ideas right now.');
-        console.error('Error fetching recipes:', result.error);
+        const errorMessage = result.error || getRecipeRequestErrorMessage(response.status);
+        setRecipeError(errorMessage);
+        console.error('Error fetching recipes:', errorMessage);
       }
     } catch (error) {
       setRecipeError('Unable to generate recipe ideas right now.');

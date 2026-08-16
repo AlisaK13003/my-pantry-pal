@@ -14,6 +14,19 @@ I built it as a full-stack Next.js/TypeScript project with Firebase Authenticati
 
 <img src="public/assets/images/my-pantry-pal-dashboard.png" alt="My Pantry Pal pantry dashboard showing inventory cards and generated recipe ideas" width="900" />
 
+## Demo Account
+
+Want to try it without creating an account?
+
+```text
+Email: demo@mypantrypal.app
+Password: PantryDemo2026!
+```
+
+This is a shared demo account. It should contain only fake pantry data, and anyone with the login can add, edit, or delete its pantry items. Do not store anything personal in it.
+
+The app does not expose admin actions to users. Recipe generation also requires a signed-in Firebase user and is rate-limited server-side with Upstash Redis so the public demo cannot endlessly spend OpenAI credits.
+
 ## What It Does
 
 - Lets users sign up, sign in, and sign out with Firebase Authentication
@@ -27,6 +40,7 @@ I built it as a full-stack Next.js/TypeScript project with Firebase Authenticati
 - Uses Pexels for recipe photos when configured, with a generated fallback image
 - Includes light and dark mode
 - Has a responsive landing page plus an authenticated pantry dashboard
+- Protects recipe generation with Firebase-token checks and Upstash rate limiting
 
 ## Recipe Generation
 
@@ -63,6 +77,7 @@ The app allows common basics like water, salt, pepper, dried herbs, and spices. 
 - **Backend:** Next.js API routes
 - **AI:** OpenAI API
 - **Recipe photos:** Pexels API
+- **Rate limiting:** Upstash Redis and `@upstash/ratelimit`
 - **Other notable packages:** Axios, Google Cloud AI Platform client package
 - **Deployment:** Vercel
 
@@ -143,6 +158,13 @@ OPENAI_RECIPE_MODEL=gpt-4o-mini
 
 # Optional: recipe photography
 PEXELS_API_KEY=
+
+# Upstash Redis rate limiting
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
+
+# Optional: defaults to 5 requests per 10 minutes
+RECIPE_RATE_LIMIT_MAX_REQUESTS=5
 ```
 
 Never commit API keys or private environment values.
@@ -183,11 +205,13 @@ The included `firestore.rules` file restricts access so users can only read and 
 
 ## API Overview
 
-Recipe generation happens through:
+Recipe generation happens through an authenticated API route:
 
 ```text
 POST /api/recipe
 ```
+
+The browser sends the signed-in Firebase user's ID token in the `Authorization` header. The API verifies that token before calling OpenAI, then rate-limits recipe requests with Upstash Redis.
 
 Example request shape:
 

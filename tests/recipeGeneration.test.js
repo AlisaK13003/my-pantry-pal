@@ -189,6 +189,33 @@ test('Case C: multiple valid subsets can return recipes from both groups', () =>
   ]);
 });
 
+test('Case C2: simple pantry names like Oil and Coconut still validate useful recipes', () => {
+  const items = pantry([
+    'Onion',
+    'Rice Flour',
+    'Garlic',
+    'Banana',
+    'Tomatoes',
+    'Baking Powder',
+    'Sesame Seeds',
+    'Salt',
+    'Spaghetti',
+    'Coconut',
+    'Sugar',
+    'Oil',
+  ]);
+
+  const hints = findCompatibleSubsetHints(items);
+  const result = validateRecipeCandidates([pastaRecipe, fritterRecipe], items, []);
+
+  assert.ok(hints.some((subset) => subset.includes('Spaghetti') && subset.includes('Tomatoes')));
+  assert.ok(hints.some((subset) => subset.includes('Banana') && subset.includes('Rice Flour')));
+  assert.deepEqual(Array.from(result.validRecipes, (recipe) => recipe.title), [
+    pastaRecipe.title,
+    fritterRecipe.title,
+  ]);
+});
+
 test('Case D: genuinely unusable pantry has no subset hint and rejects absurd combinations', () => {
   const items = pantry([
     'Canned Sardines',
