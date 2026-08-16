@@ -6,13 +6,13 @@ I built it as a full-stack Next.js/TypeScript project with Firebase Authenticati
 
 ## Screenshots
 
-**Pantry dashboard**
-
-<img src="public/assets/images/my-pantry-pal-dashboard.png" alt="My Pantry Pal pantry dashboard showing inventory cards and generated recipe ideas" width="900" />
-
 **Landing page**
 
 <img src="public/assets/images/my-pantry-pal-home.png" alt="My Pantry Pal landing page" width="900" />
+
+**Pantry dashboard**
+
+<img src="public/assets/images/my-pantry-pal-dashboard.png" alt="My Pantry Pal pantry dashboard showing inventory cards and generated recipe ideas" width="900" />
 
 ## What It Does
 
