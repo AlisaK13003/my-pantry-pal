@@ -42,9 +42,9 @@ export const isFirebaseConfigured = missingFirebaseConfig.length === 0;
 
 export interface InventoryItem {
   itemId: string;
-  date: Timestamp; // Using Timestamp instead of string for date type
+  date?: Timestamp | null;
   type: string;
-  quantity: number;
+  quantity?: number | null;
 }
 
 const app = typeof window !== 'undefined' && isFirebaseConfigured ? initializeApp(firebaseConfig) : null;
@@ -98,10 +98,9 @@ function capitalizeWords(input: string): string {
 }
 
 
-export const addItemToInventory = async (uid: string, date: Date, type: string, quantity: number) => {
+export const addItemToInventory = async (uid: string, date: Date | null, type: string, quantity: number | null) => {
   const firestore = requireDb();
   const userCollection = collection(firestore, `users/${uid}/inventory`);
-  const dateAsTimestamp = Timestamp.fromDate(date); // Convert Date to Timestamp
   const formattedType = capitalizeWords(type); // Capitalize and format the type string
 
   // Check if an item with the same type already exists
@@ -112,23 +111,49 @@ export const addItemToInventory = async (uid: string, date: Date, type: string, 
     // If item exists, update the existing item's quantity
     const existingItemDoc = querySnapshot.docs[0];
     const existingItemData = existingItemDoc.data();
-    const newQuantity = existingItemData.quantity + quantity;
+    const existingQuantity = typeof existingItemData.quantity === 'number' ? existingItemData.quantity : null;
+    const newQuantity = existingQuantity !== null && quantity !== null ? existingQuantity + quantity : quantity ?? existingQuantity;
+    const updatePayload: {
+      quantity?: number | null;
+      date?: Timestamp | null;
+      updatedAt: Timestamp;
+      type: string;
+    } = {
+      updatedAt: Timestamp.now(),
+      type: formattedType
+    };
 
-    await updateDoc(doc(firestore, `users/${uid}/inventory/${existingItemDoc.id}`), {
-      quantity: newQuantity,
-      updatedAt: Timestamp.now(), // Use Timestamp here
-      type: formattedType // Ensure type is consistently formatted
-    });
+    if (newQuantity !== null) {
+      updatePayload.quantity = newQuantity;
+    }
+
+    if (date) {
+      updatePayload.date = Timestamp.fromDate(date);
+    }
+
+    await updateDoc(doc(firestore, `users/${uid}/inventory/${existingItemDoc.id}`), updatePayload);
 
     return;
   }
 
+  const newItemPayload: {
+    date?: Timestamp | null;
+    type: string;
+    quantity?: number | null;
+  } = {
+    type: formattedType
+  };
+
+  if (date) {
+    newItemPayload.date = Timestamp.fromDate(date);
+  }
+
+  if (quantity !== null) {
+    newItemPayload.quantity = quantity;
+  }
+
   // If item does not exist, add new item with formatted type
-  await addDoc(userCollection, {
-    date: dateAsTimestamp,
-    type: formattedType,
-    quantity
-  });
+  await addDoc(userCollection, newItemPayload);
 };
 
 export const removeItemFromInventory = async (uid: string, itemId: string) => {
@@ -136,13 +161,24 @@ export const removeItemFromInventory = async (uid: string, itemId: string) => {
   await deleteDoc(itemDoc);
 };
 
-export const editItemInInventory = async (uid: string, itemId: string, newType: string, newQuantity: number) => {
+export const editItemInInventory = async (uid: string, itemId: string, newType: string, newQuantity: number | null, newDate?: Date | null) => {
   const itemDoc = doc(requireDb(), `users/${uid}/inventory/${itemId}`);
-  await updateDoc(itemDoc, {
+  const updatePayload: {
+    type: string;
+    quantity: number | null;
+    date?: Timestamp | null;
+    updatedAt: Timestamp;
+  } = {
     type: newType,
     quantity: newQuantity,
     updatedAt: Timestamp.now() // Use Timestamp here
-  });
+  };
+
+  if (newDate !== undefined) {
+    updatePayload.date = newDate ? Timestamp.fromDate(newDate) : null;
+  }
+
+  await updateDoc(itemDoc, updatePayload);
 };
 
 export const getUserInventory = async (uid: string): Promise<InventoryItem[]> => {
@@ -151,9 +187,9 @@ export const getUserInventory = async (uid: string): Promise<InventoryItem[]> =>
   const querySnapshot = await getDocs(q);
   const items = querySnapshot.docs.map(doc => ({
     itemId: doc.id,
-    date: doc.data().date as Timestamp, // Cast to Timestamp
+    date: doc.data().date as Timestamp | null | undefined,
     type: doc.data().type,
-    quantity: doc.data().quantity,
+    quantity: doc.data().quantity ?? null,
   })) as InventoryItem[];
   return items;
 };

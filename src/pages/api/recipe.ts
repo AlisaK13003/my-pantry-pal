@@ -8,7 +8,7 @@ const OPENAI_MODEL = process.env.OPENAI_RECIPE_MODEL || 'gpt-4o-mini';
 
 interface PantryItemInput {
   name: string;
-  quantity: number;
+  quantity?: number | null;
   expirationDate?: string;
   unit?: string;
 }
@@ -34,8 +34,11 @@ const isPantryItem = (item: unknown): item is PantryItemInput => {
   return (
     typeof candidate.name === 'string' &&
     candidate.name.trim().length > 0 &&
-    typeof candidate.quantity === 'number' &&
-    Number.isFinite(candidate.quantity)
+    (
+      candidate.quantity === undefined ||
+      candidate.quantity === null ||
+      (typeof candidate.quantity === 'number' && Number.isFinite(candidate.quantity))
+    )
   );
 };
 
@@ -61,7 +64,8 @@ const formatPantryItems = (items: PantryItemInput[]) =>
     .map((item) => {
       const unit = item.unit && item.unit !== 'units' ? ` ${item.unit}` : '';
       const expiration = item.expirationDate ? `, expires ${item.expirationDate}` : '';
-      return `${item.name}: ${item.quantity}${unit}${expiration}`;
+      const quantity = typeof item.quantity === 'number' ? `: ${item.quantity}${unit}` : '';
+      return `${item.name}${quantity}${expiration}`;
     })
     .join('\n');
 

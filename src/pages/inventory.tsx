@@ -11,7 +11,7 @@ import AutoAwesome from '@mui/icons-material/AutoAwesome';
 interface Item {
   id: string;
   name: string;
-  quantity: number;
+  quantity: number | null;
   expirationDate: string;
   unit: string;
 }
@@ -29,10 +29,22 @@ const MIN_RECIPE_ITEMS = 5;
 const Inventory = () => {
   const formatDate = (date:any) => {
     if (!date || !date.seconds) {
-      console.error('Invalid date:', date);
-      return ''; // Return an empty string or some default date
+      return '';
     }
     return new Date(date.seconds * 1000).toISOString().split('T')[0];
+  };
+
+  const parseOptionalQuantity = (quantity: number | string): number | null => {
+    if (quantity === '') {
+      return null;
+    }
+
+    const parsedQuantity = Number(quantity);
+    return Number.isFinite(parsedQuantity) ? parsedQuantity : null;
+  };
+
+  const parseOptionalDate = (date: string): Date | null => {
+    return date ? new Date(date) : null;
   };
   
   const [search, setSearch] = useState('');
@@ -50,10 +62,8 @@ const Inventory = () => {
   const [isGeneratingRecipe, setIsGeneratingRecipe] = useState(false);
   const [firebaseError, setFirebaseError] = useState('');
   const [mode, setMode] = useState<'light' | 'dark'>('light');
-  const [errors, setErrors] = useState<{ name: boolean; quantity: boolean; expirationDate: boolean }>({
+  const [errors, setErrors] = useState<{ name: boolean }>({
     name: false,
-    quantity: false,
-    expirationDate: false,
   });
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -83,7 +93,7 @@ const Inventory = () => {
     setItems(inventoryItems.map(item => ({
       id: item.itemId,
       name: item.type,
-      quantity: item.quantity,
+      quantity: item.quantity ?? null,
       expirationDate: formatDate(item.date), // Use the updated formatDate function
       unit: 'units',
     })));
@@ -96,17 +106,17 @@ const Inventory = () => {
     setNewItemQuantity('');
     setNewItemExpirationDate('');
     setNewItemUnit('units');
-    setErrors({ name: false, quantity: false, expirationDate: false });
+    setErrors({ name: false });
     setDialogOpen(true);
   };
 
   const handleEditItem = (item: Item) => {
     setCurrentItem(item);
     setNewItemName(item.name);
-    setNewItemQuantity(item.quantity);
+    setNewItemQuantity(item.quantity ?? '');
     setNewItemExpirationDate(item.expirationDate);
     setNewItemUnit(item.unit);
-    setErrors({ name: false, quantity: false, expirationDate: false });
+    setErrors({ name: false });
     setDialogOpen(true);
   };
 
@@ -124,20 +134,20 @@ const Inventory = () => {
   const handleDialogSave = async () => {
     const newErrors = {
       name: !newItemName,
-      quantity: newItemQuantity === '',
-      expirationDate: !newItemExpirationDate,
     };
 
     setErrors(newErrors);
 
-    if (!newErrors.name && !newErrors.quantity && !newErrors.expirationDate) {
+    if (!newErrors.name) {
       const normalizedItemName = newItemName.trim().toLowerCase();
+      const parsedQuantity = parseOptionalQuantity(newItemQuantity);
+      const parsedDate = parseOptionalDate(newItemExpirationDate);
 
       if (currentItem && userId) {
-        await editItemInInventory(userId, currentItem.id, newItemName, Number(newItemQuantity));
-        setItems(items.map(item => 
-          item.id === currentItem.id 
-            ? { ...item, name: newItemName.charAt(0).toUpperCase() + newItemName.slice(1), quantity: Number(newItemQuantity), expirationDate: newItemExpirationDate, unit: newItemUnit } 
+        await editItemInInventory(userId, currentItem.id, newItemName, parsedQuantity, parsedDate);
+        setItems(items.map(item =>
+          item.id === currentItem.id
+            ? { ...item, name: newItemName.charAt(0).toUpperCase() + newItemName.slice(1), quantity: parsedQuantity, expirationDate: newItemExpirationDate, unit: newItemUnit }
             : item
         ));
       } else if (userId) {
@@ -147,22 +157,33 @@ const Inventory = () => {
 
         if (existingItemIndex !== -1) {
           const updatedItems = [...items];
-          updatedItems[existingItemIndex].quantity += Number(newItemQuantity);
-          updatedItems[existingItemIndex].expirationDate = newItemExpirationDate;
+          const existingQuantity = updatedItems[existingItemIndex].quantity;
+          updatedItems[existingItemIndex].quantity = existingQuantity !== null && parsedQuantity !== null
+            ? existingQuantity + parsedQuantity
+            : parsedQuantity ?? existingQuantity;
+          if (newItemExpirationDate) {
+            updatedItems[existingItemIndex].expirationDate = newItemExpirationDate;
+          }
           setItems(updatedItems);
 
-          await editItemInInventory(userId, items[existingItemIndex].id, newItemName, updatedItems[existingItemIndex].quantity);
+          await editItemInInventory(
+            userId,
+            items[existingItemIndex].id,
+            newItemName,
+            updatedItems[existingItemIndex].quantity,
+            newItemExpirationDate ? parsedDate : undefined
+          );
         } else {
           const newItem: Item = {
             id: Date.now().toString(),
             name: newItemName.charAt(0).toUpperCase() + newItemName.slice(1),
-            quantity: Number(newItemQuantity),
+            quantity: parsedQuantity,
             expirationDate: newItemExpirationDate,
             unit: newItemUnit,
           };
           setItems(prevItems => [...prevItems, newItem]);
 
-          await addItemToInventory(userId, new Date(newItemExpirationDate), newItemName, Number(newItemQuantity));
+          await addItemToInventory(userId, parsedDate, newItemName, parsedQuantity);
         }
       }
 
@@ -325,8 +346,12 @@ const Inventory = () => {
                 <Grid item xs={12} sm={4} md={4} key={item.id}>
                   <Paper style={{ padding: '16px', position: 'relative', backgroundColor: theme.palette.background.paper }}>
                     <Typography variant="h6" style={{ color: theme.palette.text.primary }}>{item.name}</Typography>
-                    <Typography variant="body2" style={{ color: theme.palette.text.secondary }}>Quantity: {item.quantity} {item.unit}</Typography>
-                    <Typography variant="body2" style={{ color: theme.palette.text.secondary }}>Expires: {item.expirationDate}</Typography>
+                    <Typography variant="body2" style={{ color: theme.palette.text.secondary }}>
+                      Quantity: {item.quantity !== null ? `${item.quantity} ${item.unit}` : 'Not set'}
+                    </Typography>
+                    <Typography variant="body2" style={{ color: theme.palette.text.secondary }}>
+                      Expires: {item.expirationDate || 'Not set'}
+                    </Typography>
                     <IconButton
                       aria-label="edit"
                       style={{ position: 'absolute', top: '10px', right: '40px', color: theme.palette.text.primary }}
@@ -419,22 +444,17 @@ const Inventory = () => {
                   </InputAdornment>
                 ),
               }}
-              error={errors.quantity}
-              helperText={errors.quantity && "Quantity is required"}
             />
             <TextField
               margin="dense"
               label="Expiration Date"
               type="date"
               fullWidth
-              required
               value={newItemExpirationDate}
               onChange={(e) => setNewItemExpirationDate(e.target.value)}
               InputLabelProps={{
                 shrink: true,
               }}
-              error={errors.expirationDate}
-              helperText={errors.expirationDate && "Expiration date is required"}
             />
             <Box display="flex" justifyContent="center" gap={2} marginTop="10px">
               <Button
