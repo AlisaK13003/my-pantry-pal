@@ -4,6 +4,7 @@ import { ChatCompletionCreateParams } from 'openai/resources/index.mjs';
 import { randomUUID } from 'crypto';
 
 const MIN_RECIPE_ITEMS = 5;
+const RECIPES_PER_REQUEST = 3;
 const OPENAI_MODEL = process.env.OPENAI_RECIPE_MODEL || 'gpt-4o-mini';
 const INCOMPATIBLE_RECIPE_ERROR = 'Could not generate a realistic recipe. Please try adding more compatible ingredients.';
 const INVENTED_INGREDIENT_ERROR = 'Could not generate a recipe using only your pantry items. Please add more ingredients and try again.';
@@ -62,12 +63,22 @@ const PANTRY_DESCRIPTOR_WORDS = new Set([
 
 const INGREDIENT_PREP_WORDS = new Set([
   'chopped',
+  'cold',
   'cooked',
   'crushed',
+  'cut',
   'diced',
+  'halved',
+  'ice',
   'minced',
   'peeled',
+  'ripe',
   'sauce',
+  'thinly',
+]);
+
+const ALLOWED_BASIC_INGREDIENT_WORDS = new Set([
+  'water',
 ]);
 
 const ALLOWED_SEASONING_WORDS = new Set([
@@ -177,7 +188,12 @@ interface RecipeCandidate {
   imageQuery: string;
 }
 
-type RecipeGenerationResult = RecipeCandidate | NoRecipeCandidate;
+interface RecipeBatchCandidate {
+  canMakeRecipe: true;
+  recipes: RecipeCandidate[];
+}
+
+type RecipeGenerationResult = RecipeBatchCandidate | RecipeCandidate | NoRecipeCandidate;
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -200,23 +216,15 @@ const isPantryItem = (item: unknown): item is PantryItemInput => {
   );
 };
 
-const isRecipeGenerationResult = (recipe: unknown): recipe is RecipeGenerationResult => {
+const isRecipeCandidate = (recipe: unknown): recipe is RecipeCandidate => {
   if (!recipe || typeof recipe !== 'object') {
     return false;
   }
 
-  const candidate = recipe as Partial<RecipeGenerationResult>;
-
-  if (typeof candidate.canMakeRecipe !== 'boolean') {
-    return false;
-  }
-
-  if (!candidate.canMakeRecipe) {
-    const noRecipe = candidate as Partial<NoRecipeCandidate>;
-    return noRecipe.reason === undefined || typeof noRecipe.reason === 'string';
-  }
+  const candidate = recipe as Partial<RecipeCandidate>;
 
   return (
+    candidate.canMakeRecipe === true &&
     typeof candidate.title === 'string' &&
     candidate.title.trim().length > 0 &&
     typeof candidate.prepTime === 'string' &&
@@ -230,6 +238,27 @@ const isRecipeGenerationResult = (recipe: unknown): recipe is RecipeGenerationRe
     typeof candidate.imageQuery === 'string' &&
     candidate.imageQuery.trim().length > 0
   );
+};
+
+const isRecipeGenerationResult = (recipe: unknown): recipe is RecipeGenerationResult => {
+  if (!recipe || typeof recipe !== 'object') {
+    return false;
+  }
+
+  const candidate = recipe as Partial<RecipeGenerationResult>;
+
+  if (!candidate.canMakeRecipe) {
+    const noRecipe = candidate as Partial<NoRecipeCandidate>;
+    return noRecipe.reason === undefined || typeof noRecipe.reason === 'string';
+  }
+
+  const batchCandidate = candidate as Partial<RecipeBatchCandidate>;
+
+  if (Array.isArray(batchCandidate.recipes)) {
+    return batchCandidate.recipes.length > 0 && batchCandidate.recipes.every(isRecipeCandidate);
+  }
+
+  return isRecipeCandidate(recipe);
 };
 
 const formatPantryItems = (items: PantryItemInput[]) =>
@@ -289,6 +318,10 @@ const recipeIngredientIsAllowed = (ingredient: string, pantryItems: PantryItemIn
   }
 
   if (ingredientTokens.every((token) => ALLOWED_SEASONING_WORDS.has(token))) {
+    return true;
+  }
+
+  if (ingredientTokens.every((token) => ALLOWED_BASIC_INGREDIENT_WORDS.has(token))) {
     return true;
   }
 
@@ -519,20 +552,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
       {
         role: 'user',
-        content: `Decide whether these pantry items can make one realistic, recognizable, appetizing recipe.
+        content: `Decide whether these pantry items can make realistic, recognizable, appetizing recipes.
 
 Rules:
-- A valid recipe must use at least 3 compatible pantry items from the list.
+- Return up to ${RECIPES_PER_REQUEST} distinct recipes in one response.
+- Each valid recipe must use at least 3 compatible pantry items from the list.
 - The ingredients list must only include pantry items from the list, plus salt, pepper, dried herbs, or spices.
+- Water is allowed as a basic ingredient.
 - Do not add bread, oil, butter, milk, eggs, flour, sugar, sauces, garnishes, or any other ingredient unless it appears in the pantry list.
 - Do not combine ingredients that clash just because they are present.
 - Ignore unrelated snack, candy, dessert, or fruit ingredients when they do not fit the main dish.
 - Do not add a separate dessert or side just to use an incompatible ingredient.
 - Never combine seafood or meat with chocolate, marshmallows, candy, or other dessert ingredients.
 - Prefer the strongest compatible subset of the pantry. For example, pasta plus tomatoes plus garlic plus onions can make a simple tomato pasta even if unrelated items are also present.
+- Consider international and culturally specific dishes when the pantry fits them. For example, banana or plantain plus rice flour plus shredded coconut plus sugar plus sesame seeds plus baking powder plus vegetable oil can make Thai fried bananas, also called gluay kaeg.
 - Do not return any recipe whose title is already listed in "Already shown recipe titles."
 - If the list cannot make a sensible recipe, return canMakeRecipe false with a short reason.
-- If it can, create one satisfying recipe. The recipe does not need to use every item.
+- If it can, create multiple satisfying recipes when possible. Recipes do not need to use every pantry item.
 
 Make it useful for someone who is not very confident at cooking:
 - include realistic amounts
@@ -550,14 +586,19 @@ ${excludedRecipeTitles.length > 0 ? excludedRecipeTitles.join('\n') : 'None'}
 Return JSON with this shape:
 {
   "canMakeRecipe": true,
-  "title": "Recipe name",
-  "prepTime": "10 minutes",
-  "cookTime": "20 minutes",
-  "servings": "2 servings",
-  "ingredients": ["ingredient with amount"],
-  "directions": ["clear beginner-friendly step 1", "clear beginner-friendly step 2"],
-  "suggestions": "Two or three helpful sentences about substitutions, serving, or storage.",
-  "imageQuery": "short visual search phrase for this dish, like creamy tomato pasta"
+  "recipes": [
+    {
+      "canMakeRecipe": true,
+      "title": "Recipe name",
+      "prepTime": "10 minutes",
+      "cookTime": "20 minutes",
+      "servings": "2 servings",
+      "ingredients": ["ingredient with amount"],
+      "directions": ["clear beginner-friendly step 1", "clear beginner-friendly step 2"],
+      "suggestions": "Two or three helpful sentences about substitutions, serving, or storage.",
+      "imageQuery": "short visual search phrase for this dish, like creamy tomato pasta"
+    }
+  ]
 }
 
 If the pantry items cannot make a realistic recipe, return JSON with this shape instead:
@@ -569,7 +610,7 @@ If the pantry items cannot make a realistic recipe, return JSON with this shape 
     ],
     response_format: { type: 'json_object' },
     temperature: 0.2,
-    max_tokens: 600,
+    max_tokens: 1800,
   };
 
   try {
@@ -592,44 +633,61 @@ If the pantry items cannot make a realistic recipe, return JSON with this shape 
       });
     }
 
-    if (hasObviousIncompatiblePairing(parsedRecipe)) {
-      return res.status(422).json({
-        error: INCOMPATIBLE_RECIPE_ERROR,
-      });
+    const candidateRecipes = 'recipes' in parsedRecipe ? parsedRecipe.recipes : [parsedRecipe];
+    const seenRecipeTitles = new Set(excludedRecipeTitles.map(normalizeRecipeTitle));
+    const validRecipes: RecipeCandidate[] = [];
+
+    for (const candidateRecipe of candidateRecipes) {
+      const normalizedTitle = normalizeRecipeTitle(candidateRecipe.title);
+
+      if (seenRecipeTitles.has(normalizedTitle)) {
+        console.warn('Recipe duplicated an existing title', candidateRecipe.title);
+        continue;
+      }
+
+      if (hasObviousIncompatiblePairing(candidateRecipe)) {
+        console.warn('Recipe had an obvious incompatible pairing', candidateRecipe.title);
+        continue;
+      }
+
+      const inventedIngredients = getInventedIngredients(candidateRecipe, validPantryItems);
+
+      if (inventedIngredients.length > 0) {
+        console.warn('Recipe included ingredients outside pantry', candidateRecipe.title, inventedIngredients);
+        continue;
+      }
+
+      seenRecipeTitles.add(normalizedTitle);
+      validRecipes.push(candidateRecipe);
     }
 
-    if (isDuplicateRecipeTitle(parsedRecipe.title, excludedRecipeTitles)) {
-      return res.status(409).json({
-        error: 'That recipe idea is already shown. Try again for a different one.',
-      });
-    }
-
-    const inventedIngredients = getInventedIngredients(parsedRecipe, validPantryItems);
-
-    if (inventedIngredients.length > 0) {
-      console.warn('Recipe included ingredients outside pantry', inventedIngredients);
+    if (validRecipes.length === 0) {
       return res.status(422).json({
         error: INVENTED_INGREDIENT_ERROR,
       });
     }
 
-    const recipePhoto = await getRecipePhoto(parsedRecipe.imageQuery);
+    const recipes: RecipeResponse[] = await Promise.all(
+      validRecipes.slice(0, RECIPES_PER_REQUEST).map(async (candidateRecipe) => {
+        const recipePhoto = await getRecipePhoto(candidateRecipe.imageQuery);
 
-    const recipe: RecipeResponse = {
-      title: parsedRecipe.title,
-      prepTime: parsedRecipe.prepTime,
-      cookTime: parsedRecipe.cookTime,
-      servings: parsedRecipe.servings,
-      ingredients: parsedRecipe.ingredients,
-      directions: parsedRecipe.directions,
-      suggestions: parsedRecipe.suggestions,
-      imageQuery: parsedRecipe.imageQuery,
-      id: randomUUID(),
-      imageUrl: recipePhoto.imageUrl,
-      imageAttribution: recipePhoto.attribution,
-    };
+        return {
+          title: candidateRecipe.title,
+          prepTime: candidateRecipe.prepTime,
+          cookTime: candidateRecipe.cookTime,
+          servings: candidateRecipe.servings,
+          ingredients: candidateRecipe.ingredients,
+          directions: candidateRecipe.directions,
+          suggestions: candidateRecipe.suggestions,
+          imageQuery: candidateRecipe.imageQuery,
+          id: randomUUID(),
+          imageUrl: recipePhoto.imageUrl,
+          imageAttribution: recipePhoto.attribution,
+        };
+      })
+    );
 
-    return res.status(200).json({ recipe });
+    return res.status(200).json({ recipes, recipe: recipes[0] });
   } catch (error: any) {
     console.error('Error in POST /api/recipe', error);
 

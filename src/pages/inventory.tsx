@@ -308,25 +308,39 @@ const Inventory = () => {
       const result = await response.json();
 
       if (response.ok) {
-        const newRecipe = {
-          id: result.recipe.id,
-          title: result.recipe.title,
-          prepTime: result.recipe.prepTime,
-          cookTime: result.recipe.cookTime,
-          servings: result.recipe.servings,
-          ingredients: result.recipe.ingredients,
-          directions: result.recipe.directions,
-          suggestions: result.recipe.suggestions,
-          imageUrl: result.recipe.imageUrl,
+        const generatedRecipes = Array.isArray(result.recipes)
+          ? result.recipes
+          : result.recipe
+            ? [result.recipe]
+            : [];
+
+        const newRecipes: Recipe[] = generatedRecipes.map((recipe: Recipe) => ({
+          id: recipe.id,
+          title: recipe.title,
+          prepTime: recipe.prepTime,
+          cookTime: recipe.cookTime,
+          servings: recipe.servings,
+          ingredients: recipe.ingredients,
+          directions: recipe.directions,
+          suggestions: recipe.suggestions,
+          imageUrl: recipe.imageUrl,
           pantrySignature,
-          imageAttribution: result.recipe.imageAttribution ?? null,
-        };
+          imageAttribution: recipe.imageAttribution ?? null,
+        }));
 
-        const isDuplicate = visibleRecipes.some(
-          (recipe) => normalizeRecipeTitle(recipe.title) === normalizeRecipeTitle(newRecipe.title)
-        );
+        const existingTitles = new Set(visibleRecipes.map((recipe) => normalizeRecipeTitle(recipe.title)));
+        const uniqueNewRecipes = newRecipes.filter((recipe) => {
+          const normalizedTitle = normalizeRecipeTitle(recipe.title);
 
-        if (isDuplicate) {
+          if (existingTitles.has(normalizedTitle)) {
+            return false;
+          }
+
+          existingTitles.add(normalizedTitle);
+          return true;
+        });
+
+        if (uniqueNewRecipes.length === 0) {
           setRecipeError('That recipe idea is already shown. Try again for a different one.');
           return;
         }
@@ -335,9 +349,11 @@ const Inventory = () => {
           ...prevRecipes.filter(
             (recipe) =>
               recipe.pantrySignature !== pantrySignature ||
-              normalizeRecipeTitle(recipe.title) !== normalizeRecipeTitle(newRecipe.title)
+              !uniqueNewRecipes.some(
+                (newRecipe) => normalizeRecipeTitle(recipe.title) === normalizeRecipeTitle(newRecipe.title)
+              )
           ),
-          newRecipe,
+          ...uniqueNewRecipes,
         ]);
       } else {
         setRecipeError(result.error || 'Unable to generate recipe ideas right now.');
