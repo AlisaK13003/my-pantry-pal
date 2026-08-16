@@ -16,9 +16,14 @@ interface PantryItemInput {
 interface RecipeResponse {
   id: string;
   title: string;
+  prepTime: string;
+  cookTime: string;
+  servings: string;
   ingredients: string[];
   directions: string[];
   suggestions: string;
+  imageQuery: string;
+  imageUrl: string;
 }
 
 const openai = new OpenAI({
@@ -51,11 +56,15 @@ const isRecipeResponse = (recipe: unknown): recipe is RecipeResponse => {
   return (
     typeof candidate.title === 'string' &&
     candidate.title.trim().length > 0 &&
+    typeof candidate.prepTime === 'string' &&
+    typeof candidate.cookTime === 'string' &&
+    typeof candidate.servings === 'string' &&
     Array.isArray(candidate.ingredients) &&
     candidate.ingredients.every((ingredient) => typeof ingredient === 'string') &&
     Array.isArray(candidate.directions) &&
     candidate.directions.every((step) => typeof step === 'string') &&
-    typeof candidate.suggestions === 'string'
+    typeof candidate.suggestions === 'string' &&
+    typeof candidate.imageQuery === 'string'
   );
 };
 
@@ -68,6 +77,11 @@ const formatPantryItems = (items: PantryItemInput[]) =>
       return `${item.name}${quantity}${expiration}`;
     })
     .join('\n');
+
+const buildRecipeImageUrl = (imageQuery: string) => {
+  const query = encodeURIComponent(`${imageQuery} plated food`);
+  return `https://source.unsplash.com/900x520/?${query}`;
+};
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -98,11 +112,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       {
         role: 'system',
         content:
-          'You are a practical home cooking assistant. Return only valid JSON that matches the requested shape. Keep recipes realistic for a normal home kitchen.',
+          'You are a practical home cooking assistant. Return only valid JSON that matches the requested shape. Keep recipes realistic, detailed, and beginner-friendly for a normal home kitchen.',
       },
       {
         role: 'user',
-        content: `Create one simple recipe using some of these pantry items. The recipe does not need to use every item.
+        content: `Create one satisfying recipe using some of these pantry items. The recipe does not need to use every item.
+
+Make it useful for someone who is not very confident at cooking:
+- include realistic amounts
+- include 5 to 7 clear directions
+- mention visual or timing cues where helpful
+- avoid assuming special equipment
+- keep the recipe practical for a weeknight meal
 
 Pantry items:
 ${formatPantryItems(validPantryItems)}
@@ -110,9 +131,13 @@ ${formatPantryItems(validPantryItems)}
 Return JSON with this shape:
 {
   "title": "Recipe name",
+  "prepTime": "10 minutes",
+  "cookTime": "20 minutes",
+  "servings": "2 servings",
   "ingredients": ["ingredient with amount"],
-  "directions": ["short step 1", "short step 2"],
-  "suggestions": "One short note about substitutions, serving, or storage."
+  "directions": ["clear beginner-friendly step 1", "clear beginner-friendly step 2"],
+  "suggestions": "Two or three helpful sentences about substitutions, serving, or storage.",
+  "imageQuery": "short visual search phrase for this dish, like creamy tomato pasta"
 }`,
       },
     ],
@@ -138,6 +163,7 @@ Return JSON with this shape:
     const recipe: RecipeResponse = {
       ...parsedRecipe,
       id: randomUUID(),
+      imageUrl: buildRecipeImageUrl(parsedRecipe.imageQuery),
     };
 
     return res.status(200).json({ recipe });

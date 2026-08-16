@@ -19,9 +19,13 @@ interface Item {
 interface Recipe {
   id: string;
   title: string;
+  prepTime: string;
+  cookTime: string;
+  servings: string;
   ingredients: string[];
   directions: string[];
   suggestions: string;
+  imageUrl: string;
 }
 
 const MIN_RECIPE_ITEMS = 5;
@@ -230,9 +234,13 @@ const Inventory = () => {
         const newRecipe = {
           id: result.recipe.id,
           title: result.recipe.title,
+          prepTime: result.recipe.prepTime,
+          cookTime: result.recipe.cookTime,
+          servings: result.recipe.servings,
           ingredients: result.recipe.ingredients,
           directions: result.recipe.directions,
           suggestions: result.recipe.suggestions,
+          imageUrl: result.recipe.imageUrl,
         };
 
         setRecipes((prevRecipes) => [...prevRecipes, newRecipe]);
@@ -384,15 +392,32 @@ const Inventory = () => {
             <Grid container spacing={3}>
               {recipes.map((recipe) => (
               <Grid item xs={12} sm={6} md={6} key={recipe.id}>
-                <Paper style={{ minHeight: '180px', cursor: 'pointer', backgroundColor: theme.palette.background.paper, padding: '16px' }} onClick={() => handleRecipeClick(recipe)}>
-                  <Typography variant="h6" style={{ color: theme.palette.text.primary, marginBottom: '8px' }}>{recipe.title}</Typography>
-                  <Typography variant="body2" style={{ color: theme.palette.text.secondary, marginBottom: '12px' }}>
-                    {recipe.ingredients.slice(0, 3).join(', ')}
-                    {recipe.ingredients.length > 3 ? '...' : ''}
-                  </Typography>
-                  <Typography variant="body2" style={{ color: theme.palette.text.primary }}>
-                    {recipe.suggestions}
-                  </Typography>
+                <Paper style={{ minHeight: '280px', cursor: 'pointer', backgroundColor: theme.palette.background.paper, overflow: 'hidden' }} onClick={() => handleRecipeClick(recipe)}>
+                  <Box
+                    component="img"
+                    src={recipe.imageUrl}
+                    alt={recipe.title}
+                    sx={{
+                      width: '100%',
+                      height: 150,
+                      objectFit: 'cover',
+                      display: 'block',
+                      backgroundColor: mode === 'light' ? '#F1E6D2' : '#333333',
+                    }}
+                  />
+                  <Box sx={{ padding: 2 }}>
+                    <Typography variant="h6" style={{ color: theme.palette.text.primary, marginBottom: '8px' }}>{recipe.title}</Typography>
+                    <Typography variant="body2" style={{ color: theme.palette.text.secondary, marginBottom: '8px' }}>
+                      Prep: {recipe.prepTime} | Cook: {recipe.cookTime} | {recipe.servings}
+                    </Typography>
+                    <Typography variant="body2" style={{ color: theme.palette.text.secondary, marginBottom: '12px' }}>
+                      {recipe.ingredients.slice(0, 3).join(', ')}
+                      {recipe.ingredients.length > 3 ? '...' : ''}
+                    </Typography>
+                    <Typography variant="body2" style={{ color: theme.palette.text.primary }}>
+                      {recipe.suggestions}
+                    </Typography>
+                  </Box>
                 </Paper>
               </Grid>
               ))}
@@ -485,9 +510,28 @@ const Inventory = () => {
           </DialogActions>
         </Dialog>
   
-        <Dialog open={recipeDialogOpen} onClose={handleRecipeDialogClose}>
+        <Dialog open={recipeDialogOpen} onClose={handleRecipeDialogClose} maxWidth="md" fullWidth>
+          {currentRecipe?.imageUrl && (
+            <Box
+              component="img"
+              src={currentRecipe.imageUrl}
+              alt={currentRecipe.title}
+              sx={{
+                width: '100%',
+                height: { xs: 220, sm: 320 },
+                objectFit: 'cover',
+                display: 'block',
+                backgroundColor: mode === 'light' ? '#F1E6D2' : '#333333',
+              }}
+            />
+          )}
           <DialogTitle>{currentRecipe?.title}</DialogTitle>
           <DialogContent>
+            {currentRecipe && (
+              <Typography variant="body2" color="textSecondary" sx={{ marginBottom: 2 }}>
+                Prep: {currentRecipe.prepTime} | Cook: {currentRecipe.cookTime} | {currentRecipe.servings}
+              </Typography>
+            )}
             <Typography variant="h6">Ingredients</Typography>
             <Box component="ul" sx={{ marginTop: 1, paddingLeft: 3 }}>
               {currentRecipe?.ingredients.map((ingredient, index) => (
@@ -499,7 +543,7 @@ const Inventory = () => {
             <Typography variant="h6">Directions</Typography>
             <Box component="ol" sx={{ marginTop: 1, paddingLeft: 3 }}>
               {currentRecipe?.directions.map((step, index) => (
-                <Typography component="li" key={`${step}-${index}`} sx={{ marginBottom: 0.5 }}>
+                <Typography component="li" key={`${step}-${index}`} sx={{ marginBottom: 1 }}>
                   {step}
                 </Typography>
               ))}
