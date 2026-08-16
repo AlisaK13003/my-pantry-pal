@@ -60,6 +60,16 @@ const PANTRY_DESCRIPTOR_WORDS = new Set([
   'frozen',
 ]);
 
+const INGREDIENT_PREP_WORDS = new Set([
+  'chopped',
+  'cooked',
+  'crushed',
+  'diced',
+  'minced',
+  'peeled',
+  'sauce',
+]);
+
 const ALLOWED_SEASONING_WORDS = new Set([
   'allspice',
   'basil',
@@ -267,6 +277,7 @@ const getIngredientTokens = (text: string, options: { removePantryDescriptors?: 
       token &&
       token !== 'and' &&
       !MEASUREMENT_WORDS.has(token) &&
+      !INGREDIENT_PREP_WORDS.has(token) &&
       (!options.removePantryDescriptors || !PANTRY_DESCRIPTOR_WORDS.has(token))
     );
 
@@ -295,7 +306,7 @@ const recipeIngredientIsAllowed = (ingredient: string, pantryItems: PantryItemIn
       return true;
     }
 
-    return ingredientTokens.every((token) => pantryTokenSet.has(token));
+    return ingredientTokens.some((token) => pantryTokenSet.has(token));
   });
 };
 
@@ -518,6 +529,7 @@ Rules:
 - Ignore unrelated snack, candy, dessert, or fruit ingredients when they do not fit the main dish.
 - Do not add a separate dessert or side just to use an incompatible ingredient.
 - Never combine seafood or meat with chocolate, marshmallows, candy, or other dessert ingredients.
+- Prefer the strongest compatible subset of the pantry. For example, pasta plus tomatoes plus garlic plus onions can make a simple tomato pasta even if unrelated items are also present.
 - Do not return any recipe whose title is already listed in "Already shown recipe titles."
 - If the list cannot make a sensible recipe, return canMakeRecipe false with a short reason.
 - If it can, create one satisfying recipe. The recipe does not need to use every item.
