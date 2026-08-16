@@ -32,7 +32,10 @@ const loadRecipeGenerationModule = () => {
 
 const {
   buildRecipePrompt,
+  buildSupplementalRecipePrompt,
   findCompatibleSubsetHints,
+  mergeSupplementalRecipeCandidates,
+  shouldRequestSupplementalRecipes,
   validateRecipeCandidates,
 } = loadRecipeGenerationModule();
 
@@ -89,6 +92,32 @@ const fritterRecipe = {
   ],
   suggestions: 'Plantains can be used instead of bananas if they are ripe.',
   imageQuery: 'banana coconut fritters',
+};
+
+const hummusRecipe = {
+  canMakeRecipe: true,
+  title: 'Lemon Garlic Hummus',
+  prepTime: '10 minutes',
+  cookTime: '0 minutes',
+  servings: '4 servings',
+  ingredients: [
+    '1 can chickpeas, drained',
+    '1/3 cup tahini',
+    '2 tablespoons lemon juice',
+    '1 clove garlic',
+    '2 tablespoons olive oil',
+    'Salt to taste',
+    'Water as needed',
+  ],
+  directions: [
+    'Add chickpeas, tahini, lemon juice, garlic, olive oil, and salt to a food processor.',
+    'Blend until the mixture starts to smooth out.',
+    'Add water one tablespoon at a time until the hummus is creamy.',
+    'Taste and adjust salt if needed.',
+    'Spoon into a bowl and drizzle with a little olive oil if desired.',
+  ],
+  suggestions: 'Serve chilled or at room temperature.',
+  imageQuery: 'lemon garlic hummus',
 };
 
 test('Case A: mixed pantry with valid pasta subset returns a valid pasta recipe', () => {
@@ -310,4 +339,192 @@ test('Global cuisine Case D: mixed pantry keeps separate subsets and ignores unr
   assert.ok(hints.some((subset) => subset.includes('Spaghetti') && subset.includes('Tomatoes')));
   assert.ok(hints.some((subset) => subset.includes('Banana') && subset.includes('Rice Flour')));
   assert.equal(result.validRecipes.length, 2);
+});
+
+test('Recipe count prompt asks the model not to stop early at 1 or 2 recipes', () => {
+  const prompt = buildRecipePrompt(pantry([
+    'Spaghetti',
+    'Tomatoes',
+    'Garlic',
+    'Onions',
+    'Vegetable Oil',
+    'Salt',
+    'Banana',
+    'Rice Flour',
+    'Shredded Coconut',
+    'Sugar',
+    'Baking Powder',
+  ]), []);
+
+  assert.match(prompt, /Recipe count and discovery/i);
+  assert.match(prompt, /Do not stop searching after finding only 1 or 2 recipes/i);
+  assert.match(prompt, /fermented, pickled, preserved, marinated, chilled, and uncooked/i);
+  assert.match(prompt, /Returning fewer than 3 recipes is acceptable only/i);
+});
+
+test('Three-cluster pantry can retain three distinct valid recipes', () => {
+  const items = pantry([
+    'Spaghetti',
+    'Tomatoes',
+    'Garlic',
+    'Onions',
+    'Vegetable Oil',
+    'Salt',
+    'Banana',
+    'Rice Flour',
+    'Shredded Coconut',
+    'Sugar',
+    'Baking Powder',
+    'Chickpeas',
+    'Tahini',
+    'Lemon Juice',
+    'Olive Oil',
+  ]);
+
+  const result = validateRecipeCandidates([pastaRecipe, fritterRecipe, hummusRecipe], items, []);
+
+  assert.equal(result.validRecipes.length, 3);
+  assert.deepEqual(Array.from(result.validRecipes, (recipe) => recipe.title), [
+    pastaRecipe.title,
+    fritterRecipe.title,
+    hummusRecipe.title,
+  ]);
+});
+
+test('Only two legitimate recipes remain two instead of accepting a poor third', () => {
+  const items = pantry([
+    'Spaghetti',
+    'Tomatoes',
+    'Garlic',
+    'Onions',
+    'Vegetable Oil',
+    'Salt',
+    'Banana',
+    'Rice Flour',
+    'Shredded Coconut',
+    'Sugar',
+    'Baking Powder',
+  ]);
+  const outsidePantryRecipe = {
+    ...hummusRecipe,
+    title: 'Lemon Garlic Hummus',
+  };
+
+  const result = validateRecipeCandidates([pastaRecipe, fritterRecipe, outsidePantryRecipe], items, []);
+
+  assert.equal(result.validRecipes.length, 2);
+  assert.equal(result.rejectedRecipes[0].reason, 'outside-pantry');
+});
+
+test('First call returns two and supplemental call can fill one more', () => {
+  const items = pantry([
+    'Spaghetti',
+    'Tomatoes',
+    'Garlic',
+    'Onions',
+    'Vegetable Oil',
+    'Salt',
+    'Banana',
+    'Rice Flour',
+    'Shredded Coconut',
+    'Sugar',
+    'Baking Powder',
+    'Chickpeas',
+    'Tahini',
+    'Lemon Juice',
+    'Olive Oil',
+  ]);
+  const firstPass = validateRecipeCandidates([pastaRecipe, fritterRecipe], items, []);
+  const merged = mergeSupplementalRecipeCandidates(firstPass.validRecipes, [hummusRecipe], items, []);
+
+  assert.equal(shouldRequestSupplementalRecipes(firstPass.validRecipes.length), true);
+  assert.equal(merged.recipes.length, 3);
+  assert.deepEqual(Array.from(merged.recipes, (recipe) => recipe.title), [
+    pastaRecipe.title,
+    fritterRecipe.title,
+    hummusRecipe.title,
+  ]);
+});
+
+test('Supplemental duplicate is rejected and original valid recipes remain', () => {
+  const items = pantry([
+    'Spaghetti',
+    'Tomatoes',
+    'Garlic',
+    'Onions',
+    'Vegetable Oil',
+    'Salt',
+    'Banana',
+    'Rice Flour',
+    'Shredded Coconut',
+    'Sugar',
+    'Baking Powder',
+  ]);
+  const firstPass = validateRecipeCandidates([pastaRecipe, fritterRecipe], items, []);
+  const renamedDuplicate = {
+    ...pastaRecipe,
+    title: 'Simple Tomato Garlic Spaghetti',
+  };
+  const merged = mergeSupplementalRecipeCandidates(firstPass.validRecipes, [renamedDuplicate], items, []);
+
+  assert.equal(merged.recipes.length, 2);
+  assert.equal(merged.supplementalValidation.rejectedRecipes[0].reason, 'duplicate');
+});
+
+test('Supplemental outside-pantry result is rejected normally', () => {
+  const items = pantry([
+    'Spaghetti',
+    'Tomatoes',
+    'Garlic',
+    'Onions',
+    'Vegetable Oil',
+    'Salt',
+    'Banana',
+    'Rice Flour',
+    'Shredded Coconut',
+    'Sugar',
+    'Baking Powder',
+  ]);
+  const firstPass = validateRecipeCandidates([pastaRecipe, fritterRecipe], items, []);
+  const merged = mergeSupplementalRecipeCandidates(firstPass.validRecipes, [hummusRecipe], items, []);
+
+  assert.equal(merged.recipes.length, 2);
+  assert.equal(merged.supplementalValidation.rejectedRecipes[0].reason, 'outside-pantry');
+});
+
+test('First response with three valid recipes does not need supplemental discovery', () => {
+  assert.equal(shouldRequestSupplementalRecipes(3), false);
+  assert.equal(shouldRequestSupplementalRecipes(2), true);
+  assert.equal(shouldRequestSupplementalRecipes(1), true);
+  assert.equal(shouldRequestSupplementalRecipes(0), false);
+});
+
+test('Supplemental prompt tells the model what was already found', () => {
+  const prompt = buildSupplementalRecipePrompt(
+    pantry([
+      'Spaghetti',
+      'Tomatoes',
+      'Garlic',
+      'Onions',
+      'Vegetable Oil',
+      'Salt',
+      'Banana',
+      'Rice Flour',
+      'Shredded Coconut',
+      'Sugar',
+      'Baking Powder',
+      'Chickpeas',
+      'Tahini',
+      'Lemon Juice',
+      'Olive Oil',
+    ]),
+    [pastaRecipe.title, fritterRecipe.title],
+    [pastaRecipe, fritterRecipe],
+    1
+  );
+
+  assert.match(prompt, /Supplemental discovery request/i);
+  assert.match(prompt, /We still have room for 1 additional recipe/i);
+  assert.match(prompt, /Do not repeat or lightly rename/i);
+  assert.match(prompt, /different ingredient cluster, cuisine, or preparation method/i);
 });

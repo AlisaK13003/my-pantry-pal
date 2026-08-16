@@ -6,6 +6,7 @@ export const INVENTED_INGREDIENT_ERROR = 'Could not generate a recipe using only
 const MEASUREMENT_WORDS = new Set([
   'bag',
   'bags',
+  'as',
   'bottle',
   'bottles',
   'box',
@@ -18,6 +19,7 @@ const MEASUREMENT_WORDS = new Set([
   'cups',
   'dash',
   'dashes',
+  'divided',
   'drained',
   'for',
   'g',
@@ -30,6 +32,8 @@ const MEASUREMENT_WORDS = new Set([
   'liter',
   'liters',
   'ml',
+  'needed',
+  'optional',
   'oz',
   'ounce',
   'ounces',
@@ -128,6 +132,16 @@ const SWEETENER_WORDS = new Set(['sugar', 'honey', 'syrup']);
 const LEAVENING_WORDS = new Set(['baking', 'powder', 'soda']);
 const COATING_WORDS = new Set(['coconut', 'sesame', 'seed', 'seeds']);
 
+const buildRecipeCountDiscoveryInstructions = () => `Recipe count and discovery:
+- Aim to return ${RECIPES_PER_REQUEST} distinct recipes whenever the pantry contains ${RECIPES_PER_REQUEST} strong compatible recipe possibilities.
+- Do not stop searching after finding only 1 or 2 recipes.
+- Before returning fewer than ${RECIPES_PER_REQUEST} recipes, search the pantry again for additional compatible subsets.
+- Consider different cuisines, preparation methods, and dish types when looking for additional candidates.
+- Include cooked, baked, fried, fermented, pickled, preserved, marinated, chilled, and uncooked preparations when appropriate.
+- Prefer recipes that use meaningfully different ingredient subsets or preparation styles.
+- Do not generate a weak, repetitive, or unnatural recipe merely to reach ${RECIPES_PER_REQUEST}.
+- Returning fewer than ${RECIPES_PER_REQUEST} recipes is acceptable only when fewer than ${RECIPES_PER_REQUEST} strong distinct candidates genuinely exist.`;
+
 const buildCulturalDishDiscoveryInstructions = () => `Cultural and international dish discovery:
 - Actively search your cooking knowledge across cuisines for established dishes that match each compatible pantry subset.
 - This is a required step before inventing a generic recipe.
@@ -209,6 +223,11 @@ export interface RecipeRejection {
   title: string;
   reason: 'duplicate' | 'incompatible' | 'outside-pantry';
   details?: string[];
+}
+
+export interface RecipeValidationResult {
+  validRecipes: RecipeCandidate[];
+  rejectedRecipes: RecipeRejection[];
 }
 
 export type RecipeGenerationResult = RecipeBatchCandidate | RecipeCandidate | NoRecipeCandidate;
@@ -502,7 +521,7 @@ export const validateRecipeCandidates = (
   candidateRecipes: RecipeCandidate[],
   pantryItems: PantryItemInput[],
   excludedRecipeTitles: string[]
-) => {
+): RecipeValidationResult => {
   const seenRecipeTitles = new Set(excludedRecipeTitles.map(normalizeRecipeTitle));
   const validRecipes: RecipeCandidate[] = [];
   const rejectedRecipes: RecipeRejection[] = [];
@@ -547,6 +566,35 @@ export const validateRecipeCandidates = (
   };
 };
 
+export const shouldRequestSupplementalRecipes = (validRecipeCount: number) =>
+  validRecipeCount > 0 && validRecipeCount < RECIPES_PER_REQUEST;
+
+export const getSupplementalExcludedRecipeTitles = (
+  excludedRecipeTitles: string[],
+  existingRecipes: RecipeCandidate[]
+) => [
+  ...excludedRecipeTitles,
+  ...existingRecipes.map((recipe) => recipe.title),
+];
+
+export const mergeSupplementalRecipeCandidates = (
+  existingRecipes: RecipeCandidate[],
+  supplementalCandidates: RecipeCandidate[],
+  pantryItems: PantryItemInput[],
+  excludedRecipeTitles: string[]
+) => {
+  const supplementalValidation = validateRecipeCandidates(
+    supplementalCandidates,
+    pantryItems,
+    getSupplementalExcludedRecipeTitles(excludedRecipeTitles, existingRecipes)
+  );
+
+  return {
+    recipes: [...existingRecipes, ...supplementalValidation.validRecipes].slice(0, RECIPES_PER_REQUEST),
+    supplementalValidation,
+  };
+};
+
 export const buildRecipePrompt = (validPantryItems: PantryItemInput[], excludedRecipeTitles: string[]) => {
   const subsetHints = findCompatibleSubsetHints(validPantryItems);
   const subsetHintText = subsetHints.length > 0
@@ -559,7 +607,6 @@ Your task is to find sensible recipes that can be made from compatible subsets o
 
 Critical decision rules:
 - Evaluate compatible subsets of the pantry, not the pantry as a whole.
-- Return up to ${RECIPES_PER_REQUEST} distinct recipes in one response.
 - Each valid recipe must use at least 3 compatible pantry items from the list.
 - Pantry ingredients are optional. A recipe does not need to use every pantry item.
 - Unrelated or incompatible pantry items must be ignored rather than causing the request to fail.
@@ -578,6 +625,8 @@ Critical decision rules:
 
 Potential compatible subsets found by app-side pre-check:
 ${subsetHintText}
+
+${buildRecipeCountDiscoveryInstructions()}
 
 ${buildCulturalDishDiscoveryInstructions()}
 
@@ -625,4 +674,33 @@ Important final check before responding:
 2. Is there at least one subset that can form a sensible recipe?
 3. If yes, canMakeRecipe must be true.
 4. If returning false, are you certain no reasonable subset works?`;
+};
+
+export const buildSupplementalRecipePrompt = (
+  validPantryItems: PantryItemInput[],
+  excludedRecipeTitles: string[],
+  existingRecipes: RecipeCandidate[],
+  remainingCount: number
+) => {
+  const existingRecipeText = existingRecipes.map((recipe) => `- ${recipe.title}`).join('\n');
+
+  return `${buildRecipePrompt(validPantryItems, excludedRecipeTitles)}
+
+Supplemental discovery request:
+The previous generation produced these valid recipes:
+${existingRecipeText || '- None'}
+
+We still have room for ${remainingCount} additional ${remainingCount === 1 ? 'recipe' : 'recipes'}.
+
+Search the pantry again for a different strong recipe using another compatible subset.
+
+Requirements:
+- Do not repeat or lightly rename the recipes already found.
+- Prefer a different ingredient cluster, cuisine, or preparation method.
+- Actively consider established dishes across global cuisines.
+- Also consider fermented, pickled, preserved, marinated, baked, fried, chilled, and uncooked dishes when appropriate.
+- Ignore unrelated pantry items.
+- Do not invent ingredients outside the pantry except the application's allowed basics.
+- Return fewer than the requested number only if no additional strong recipe exists.
+- Return normal application JSON only; do not include internal reasoning.`;
 };

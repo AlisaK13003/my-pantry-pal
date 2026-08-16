@@ -4,16 +4,20 @@ import { ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/co
 import { randomUUID } from 'crypto';
 import {
   buildRecipePrompt,
+  buildSupplementalRecipePrompt,
   findCompatibleSubsetHints,
   getCandidateRecipes,
+  getSupplementalExcludedRecipeTitles,
   INCOMPATIBLE_RECIPE_ERROR,
   INVENTED_INGREDIENT_ERROR,
   isPantryItem,
   isRecipeGenerationResult,
+  mergeSupplementalRecipeCandidates,
   MIN_RECIPE_ITEMS,
   PantryItemInput,
   RecipeCandidate,
   RECIPES_PER_REQUEST,
+  shouldRequestSupplementalRecipes,
   validateRecipeCandidates,
 } from '@/lib/recipeGeneration';
 
@@ -166,7 +170,10 @@ const getRecipePhoto = async (imageQuery: string): Promise<RecipePhoto> => {
 const createRecipePayload = (
   pantryItems: PantryItemInput[],
   excludedRecipeTitles: string[],
-  retryReason?: string
+  options: {
+    retryReason?: string;
+    promptOverride?: string;
+  } = {}
 ): ChatCompletionCreateParamsNonStreaming => ({
   model: OPENAI_MODEL,
   messages: [
@@ -177,14 +184,14 @@ const createRecipePayload = (
     },
     {
       role: 'user',
-      content: retryReason
-        ? `${buildRecipePrompt(pantryItems, excludedRecipeTitles)}
+      content: options.retryReason
+        ? `${options.promptOverride || buildRecipePrompt(pantryItems, excludedRecipeTitles)}
 
 Retry reason from the application:
-${retryReason}
+${options.retryReason}
 
 The previous response did not yield valid recipes. Search compatible subsets again before returning failure.`
-        : buildRecipePrompt(pantryItems, excludedRecipeTitles),
+        : options.promptOverride || buildRecipePrompt(pantryItems, excludedRecipeTitles),
     },
   ],
   response_format: { type: 'json_object' },
@@ -195,19 +202,34 @@ The previous response did not yield valid recipes. Search compatible subsets aga
 const requestRecipesFromModel = async (
   pantryItems: PantryItemInput[],
   excludedRecipeTitles: string[],
-  retryReason?: string
+  options: {
+    retryReason?: string;
+    promptOverride?: string;
+    stage?: 'primary' | 'retry' | 'supplemental';
+  } = {}
 ) => {
-  const response = await openai.chat.completions.create(createRecipePayload(pantryItems, excludedRecipeTitles, retryReason));
+  const response = await openai.chat.completions.create(createRecipePayload(pantryItems, excludedRecipeTitles, options));
   const content = response.choices[0]?.message?.content;
+  const stage = options.stage || (options.retryReason ? 'retry' : 'primary');
+  const rawLogStage = stage === 'supplemental'
+    ? 'supplemental-raw-model-response'
+    : stage === 'retry'
+      ? 'raw-model-response-retry'
+      : 'raw-model-response';
+  const parsedLogStage = stage === 'supplemental'
+    ? 'supplemental-parsed-response'
+    : stage === 'retry'
+      ? 'parsed-response-retry'
+      : 'parsed-response';
 
-  logRecipeDebug(retryReason ? 'raw-model-response-retry' : 'raw-model-response', content);
+  logRecipeDebug(rawLogStage, content);
 
   if (!content) {
     throw new Error('OpenAI did not return a recipe.');
   }
 
   const parsedResponse = JSON.parse(content);
-  logRecipeDebug(retryReason ? 'parsed-response-retry' : 'parsed-response', parsedResponse);
+  logRecipeDebug(parsedLogStage, parsedResponse);
 
   return parsedResponse;
 };
@@ -270,7 +292,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       parsedGeneration = await requestRecipesFromModel(
         validPantryItems,
         excludedRecipeTitles,
-        'The app-side subset pre-check found at least one compatible ingredient subset. Top-level canMakeRecipe should be false only if no subset can make a sensible recipe.'
+        {
+          retryReason: 'The app-side subset pre-check found at least one compatible ingredient subset. Top-level canMakeRecipe should be false only if no subset can make a sensible recipe.',
+          stage: 'retry',
+        }
       );
 
       if (!isRecipeGenerationResult(parsedGeneration)) {
@@ -296,7 +321,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       parsedGeneration = await requestRecipesFromModel(
         validPantryItems,
         excludedRecipeTitles,
-        'The previous recipes were rejected by validation. Generate recipes from compatible subsets only, using no ingredients outside the pantry except water, salt, pepper, dried herbs, and spices.'
+        {
+          retryReason: 'The previous recipes were rejected by validation. Generate recipes from compatible subsets only, using no ingredients outside the pantry except water, salt, pepper, dried herbs, and spices.',
+          stage: 'retry',
+        }
       );
 
       if (!isRecipeGenerationResult(parsedGeneration)) {
@@ -320,8 +348,71 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
+    let finalValidRecipes = validationResult.validRecipes;
+    let finalRejectedRecipes = validationResult.rejectedRecipes;
+
+    if (shouldRequestSupplementalRecipes(finalValidRecipes.length)) {
+      const remainingCount = RECIPES_PER_REQUEST - finalValidRecipes.length;
+      const supplementalExcludedRecipeTitles = getSupplementalExcludedRecipeTitles(excludedRecipeTitles, finalValidRecipes);
+
+      logRecipeDebug('partial-fill', {
+        validRecipeCount: finalValidRecipes.length,
+        remainingCount,
+        existingRecipeTitles: finalValidRecipes.map((recipe) => recipe.title),
+      });
+
+      try {
+        const supplementalPrompt = buildSupplementalRecipePrompt(
+          validPantryItems,
+          supplementalExcludedRecipeTitles,
+          finalValidRecipes,
+          remainingCount
+        );
+        const supplementalGeneration = await requestRecipesFromModel(
+          validPantryItems,
+          supplementalExcludedRecipeTitles,
+          {
+            promptOverride: supplementalPrompt,
+            stage: 'supplemental',
+          }
+        );
+
+        if (isRecipeGenerationResult(supplementalGeneration) && supplementalGeneration.canMakeRecipe) {
+          const supplementalCandidates = getCandidateRecipes(supplementalGeneration);
+          const supplementalMerge = mergeSupplementalRecipeCandidates(
+            finalValidRecipes,
+            supplementalCandidates,
+            validPantryItems,
+            excludedRecipeTitles
+          );
+
+          finalValidRecipes = supplementalMerge.recipes;
+          finalRejectedRecipes = [
+            ...finalRejectedRecipes,
+            ...supplementalMerge.supplementalValidation.rejectedRecipes,
+          ];
+
+          logRecipeDebug('supplemental-validation-result', {
+            ...supplementalMerge.supplementalValidation,
+            finalMergedRecipeCount: finalValidRecipes.length,
+          });
+        } else {
+          logRecipeDebug('supplemental-validation-result', {
+            canMakeRecipe: false,
+            finalMergedRecipeCount: finalValidRecipes.length,
+          });
+        }
+      } catch (supplementalError) {
+        console.warn('Supplemental recipe discovery failed', supplementalError);
+        logRecipeDebug('supplemental-validation-result', {
+          error: 'Supplemental recipe discovery failed',
+          finalMergedRecipeCount: finalValidRecipes.length,
+        });
+      }
+    }
+
     const recipes = await Promise.all(
-      validationResult.validRecipes
+      finalValidRecipes
         .slice(0, RECIPES_PER_REQUEST)
         .map(convertRecipeCandidateToResponse)
     );
@@ -329,7 +420,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     logRecipeDebug('validated-final-response', {
       canMakeRecipe: true,
       recipes,
-      rejectedRecipes: validationResult.rejectedRecipes,
+      rejectedRecipes: finalRejectedRecipes,
+      finalRecipeCount: recipes.length,
     });
 
     return res.status(200).json({ recipes, recipe: recipes[0] });
