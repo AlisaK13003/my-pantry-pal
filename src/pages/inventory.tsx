@@ -30,6 +30,20 @@ interface Recipe {
 
 const MIN_RECIPE_ITEMS = 5;
 
+const getFirebaseErrorMessage = (error: unknown, fallback: string) => {
+  const firebaseError = error as { code?: string; message?: string };
+
+  if (firebaseError.code === 'permission-denied') {
+    return 'Firestore blocked this save. Check your Firebase security rules for users/{uid}/inventory.';
+  }
+
+  if (firebaseError.code === 'unauthenticated') {
+    return 'Please sign in again before editing your pantry.';
+  }
+
+  return firebaseError.message || fallback;
+};
+
 const Inventory = () => {
   const formatDate = (date:any) => {
     if (!date || !date.seconds) {
@@ -106,7 +120,7 @@ const Inventory = () => {
       setInventoryError('');
     } catch (error) {
       console.error('Failed to load inventory', error);
-      setInventoryError('Unable to load your pantry items right now.');
+      setInventoryError(getFirebaseErrorMessage(error, 'Unable to load your pantry items right now.'));
     }
   };
   
@@ -138,7 +152,7 @@ const Inventory = () => {
         await loadInventory(userId);
       } catch (error) {
         console.error('Failed to delete inventory item', error);
-        setInventoryError('Unable to delete that item right now.');
+        setInventoryError(getFirebaseErrorMessage(error, 'Unable to delete that item right now.'));
       }
     }
   };
@@ -174,7 +188,7 @@ const Inventory = () => {
         setDialogOpen(false);
       } catch (error) {
         console.error('Failed to save inventory item', error);
-        setInventoryError('Unable to save that item. Please try again.');
+        setInventoryError(getFirebaseErrorMessage(error, 'Unable to save that item. Please try again.'));
       }
     }
   };
