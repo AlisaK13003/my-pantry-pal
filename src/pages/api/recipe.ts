@@ -173,7 +173,7 @@ const createRecipePayload = (
     {
       role: 'system',
       content:
-        'You are a practical home cooking assistant. Return only valid JSON that matches the requested shape. Keep recipes realistic, detailed, appetizing, and beginner-friendly for a normal home kitchen.',
+        'You are a practical home cooking assistant with broad cooking knowledge across global cuisines. Return only valid JSON that matches the requested shape. Prefer established dishes when the pantry genuinely supports them, but do not invent cultural origins or names.',
     },
     {
       role: 'user',

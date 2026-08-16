@@ -209,9 +209,10 @@ test('Case E: excluded title is skipped while another valid recipe survives', ()
   assert.equal(result.rejectedRecipes[0].reason, 'duplicate');
 });
 
-test('Prompt requires subset discovery without hard-coded recipe examples', () => {
+test('Global cuisine Case A: prompt requires established-dish search before generic pancakes', () => {
   const prompt = buildRecipePrompt(pantry([
     'Banana',
+    'Plantains',
     'Rice Flour',
     'Shredded Coconut',
     'Sugar',
@@ -219,6 +220,94 @@ test('Prompt requires subset discovery without hard-coded recipe examples', () =
     'Vegetable Oil',
   ]), []);
 
-  assert.match(prompt, /compatible subsets/i);
-  assert.doesNotMatch(prompt, /gluay|thai fried bananas/i);
+  assert.match(prompt, /cultural and international dish discovery/i);
+  assert.match(prompt, /required step before inventing a generic recipe/i);
+  assert.match(prompt, /poor candidate selection:\n- Generic banana pancakes/i);
+  assert.match(prompt, /fried banana and plantain preparations/i);
+  assert.match(prompt, /not to always generate Thai fried bananas/i);
+});
+
+test('Global cuisine Case B: obvious Western dish can stay simple', () => {
+  const prompt = buildRecipePrompt(pantry([
+    'Spaghetti',
+    'Tomatoes',
+    'Garlic',
+    'Onions',
+    'Vegetable Oil',
+    'Salt',
+  ]), []);
+
+  assert.match(prompt, /do not force an international framing/i);
+  assert.match(prompt, /strong match to a conventional established recipe/i);
+});
+
+test('Global cuisine Case C: generic recipes are allowed when no cultural match is legitimate', () => {
+  const prompt = buildRecipePrompt(pantry([
+    'Potatoes',
+    'Carrots',
+    'Vegetable Oil',
+    'Salt',
+    'Pepper',
+  ]), []);
+  const genericRecipe = {
+    canMakeRecipe: true,
+    title: 'Simple Roasted Potatoes and Carrots',
+    prepTime: '10 minutes',
+    cookTime: '30 minutes',
+    servings: '2 servings',
+    ingredients: [
+      '2 potatoes, chopped',
+      '2 carrots, chopped',
+      '1 tablespoon vegetable oil',
+      'Salt and pepper to taste',
+    ],
+    directions: [
+      'Heat the oven to 400°F.',
+      'Cut the potatoes and carrots into even pieces.',
+      'Toss them with vegetable oil, salt, and pepper.',
+      'Spread them on a baking sheet.',
+      'Roast until browned and tender.',
+    ],
+    suggestions: 'Serve warm as a simple side dish.',
+    imageQuery: 'roasted potatoes carrots',
+  };
+  const result = validateRecipeCandidates([genericRecipe], pantry([
+    'Potatoes',
+    'Carrots',
+    'Vegetable Oil',
+    'Salt',
+    'Pepper',
+  ]), []);
+
+  assert.match(prompt, /sensible original recipe/i);
+  assert.match(prompt, /do not invent a cultural origin/i);
+  assert.equal(result.validRecipes.length, 1);
+});
+
+test('Global cuisine Case D: mixed pantry keeps separate subsets and ignores unrelated items', () => {
+  const items = pantry([
+    'Spaghetti',
+    'Tomatoes',
+    'Garlic',
+    'Onions',
+    'Vegetable Oil',
+    'Salt',
+    'Banana',
+    'Plantains',
+    'Rice Flour',
+    'Shredded Coconut',
+    'Sugar',
+    'Baking Powder',
+    'Strawberry Jam',
+    'Dill Pickles',
+    'Blue Cheese',
+    'Vanilla Ice Cream',
+  ]);
+
+  const hints = findCompatibleSubsetHints(items);
+  const result = validateRecipeCandidates([pastaRecipe, fritterRecipe], items, []);
+
+  assert.ok(hints.some((subset) => subset.includes('Spaghetti') && subset.includes('Tomatoes')));
+  assert.ok(hints.some((subset) => subset.includes('Banana') && subset.includes('Rice Flour')));
+  assert.equal(result.validRecipes.length, 2);
 });

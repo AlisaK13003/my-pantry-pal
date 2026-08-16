@@ -128,6 +128,54 @@ const SWEETENER_WORDS = new Set(['sugar', 'honey', 'syrup']);
 const LEAVENING_WORDS = new Set(['baking', 'powder', 'soda']);
 const COATING_WORDS = new Set(['coconut', 'sesame', 'seed', 'seeds']);
 
+const buildCulturalDishDiscoveryInstructions = () => `Cultural and international dish discovery:
+- Actively search your cooking knowledge across cuisines for established dishes that match each compatible pantry subset.
+- This is a required step before inventing a generic recipe.
+- Do not automatically default to the most familiar Western or American preparation.
+- Let the available ingredients determine which cuisines and dishes are relevant.
+- Consider food traditions from Southeast Asia, South Asia, East Asia, the Middle East, Africa, Latin America, the Caribbean, Europe, Oceania, and other regions.
+- When a subset strongly resembles a known traditional or regional dish, prefer that dish over a generic approximation.
+- Prefer recognized dishes when the pantry contains most or all of their defining ingredients.
+- Do not invent a cultural origin or traditional name unless the ingredient combination genuinely supports it.
+- Do not force an international framing when a simple established recipe is the strongest match.
+
+Before selecting final recipes, do this internally:
+1. Find compatible ingredient subsets.
+2. For each subset, identify several possible dishes.
+3. Check whether any candidate corresponds to a known dish from any cuisine.
+4. Rank strong established-dish matches above generic recipes.
+5. Select the strongest and most diverse recipe candidates.
+
+Candidate ranking priority:
+1. Strong match to a known or traditional dish
+2. Strong match to a conventional established recipe
+3. Sensible original recipe
+4. Return canMakeRecipe false only if none of the above are possible
+
+Few-shot candidate-selection example:
+Example pantry subset:
+- banana or plantain
+- rice flour
+- shredded coconut
+- sugar
+- baking powder
+- vegetable oil
+
+Poor candidate selection:
+- Generic banana pancakes
+
+Better candidate-selection process:
+- Recognize internally that fried banana and plantain preparations are common in several cuisines.
+- Consider whether the available ingredients closely match one of those established preparations.
+- If they do, prefer that known preparation over inventing pancakes.
+
+Possible result:
+- Thai-style fried bananas or plantain fritters, if the ingredients genuinely support that preparation.
+
+The point of this example is not to always generate Thai fried bananas.
+The point is to search across cuisines for a strong established-dish match before defaulting to a generic recipe.
+Do not expose this internal candidate-selection reasoning in the final JSON.`;
+
 export interface PantryItemInput {
   name: string;
   quantity?: number | null;
@@ -519,7 +567,6 @@ Critical decision rules:
 - If even one reasonable subset can make a practical recipe, top-level canMakeRecipe must be true.
 - Return canMakeRecipe false only when no reasonable subset of the available pantry can make a sensible recipe.
 - Prefer known dishes and established flavor combinations over invented combinations.
-- Use broad cooking knowledge across cuisines.
 - Do not force ingredients together just to use more pantry items.
 - Do not create an unrelated dessert or side merely to consume incompatible ingredients.
 - Never combine seafood or meat with chocolate, marshmallows, candy, or other dessert ingredients solely for ingredient coverage.
@@ -531,6 +578,8 @@ Critical decision rules:
 
 Potential compatible subsets found by app-side pre-check:
 ${subsetHintText}
+
+${buildCulturalDishDiscoveryInstructions()}
 
 Recipe quality:
 - use realistic ingredient amounts
