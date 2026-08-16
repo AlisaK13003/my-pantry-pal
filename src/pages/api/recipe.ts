@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 
 const MIN_RECIPE_ITEMS = 5;
 const OPENAI_MODEL = process.env.OPENAI_RECIPE_MODEL || 'gpt-4o-mini';
+const INCOMPATIBLE_RECIPE_ERROR = 'Could not generate a realistic recipe. Please try adding more compatible ingredients.';
 
 interface PantryItemInput {
   name: string;
@@ -136,6 +137,71 @@ const formatPantryItems = (items: PantryItemInput[]) =>
       return `${item.name}${quantity}${expiration}`;
     })
     .join('\n');
+
+const containsAny = (text: string, terms: string[]) =>
+  terms.some((term) => new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}s?\\b`, 'i').test(text));
+
+const hasObviousIncompatiblePairing = (recipe: RecipeCandidate) => {
+  const recipeText = [
+    recipe.title,
+    ...recipe.ingredients,
+    ...recipe.directions,
+    recipe.suggestions,
+  ].join(' ');
+
+  const hasSeafood = containsAny(recipeText, [
+    'anchovy',
+    'crab',
+    'fish',
+    'lobster',
+    'salmon',
+    'sardine',
+    'scallop',
+    'shrimp',
+    'tilapia',
+    'tuna',
+  ]);
+  const hasMeat = containsAny(recipeText, [
+    'bacon',
+    'beef',
+    'chicken',
+    'ham',
+    'meatball',
+    'pork',
+    'sausage',
+    'steak',
+    'turkey',
+  ]);
+  const hasDessertSweet = containsAny(recipeText, [
+    'brownie',
+    'cake',
+    'candy',
+    'caramel',
+    'chocolate',
+    'cookie',
+    'frosting',
+    'gummy',
+    'marshmallow',
+    'pudding',
+    'sprinkle',
+  ]);
+  const hasWateryFruit = containsAny(recipeText, [
+    'cantaloupe',
+    'honeydew',
+    'melon',
+    'watermelon',
+  ]);
+  const hasSourFermented = containsAny(recipeText, [
+    'kimchi',
+    'sauerkraut',
+  ]);
+  const treatsSweetAsSeparateSide = /dessert|on the side|dipped|drizzle/i.test(recipeText) && hasDessertSweet;
+
+  return (
+    ((hasSeafood || hasMeat) && (hasDessertSweet || treatsSweetAsSeparateSide)) ||
+    (hasSeafood && hasWateryFruit && hasSourFermented)
+  );
+};
 
 const buildRecipeImageUrl = (imageQuery: string) => {
   const encodedTitle = imageQuery
@@ -270,6 +336,9 @@ Rules:
 - A valid recipe must use at least 3 compatible pantry items from the list.
 - Basic staples like water, salt, pepper, and oil do not count toward the 3 compatible pantry items.
 - Do not combine ingredients that clash just because they are present.
+- Ignore unrelated snack, candy, dessert, or fruit ingredients when they do not fit the main dish.
+- Do not add a separate dessert or side just to use an incompatible ingredient.
+- Never combine seafood or meat with chocolate, marshmallows, candy, or other dessert ingredients.
 - If the list cannot make a sensible recipe, return canMakeRecipe false with a short reason.
 - If it can, create one satisfying recipe. The recipe does not need to use every item.
 
@@ -304,7 +373,7 @@ If the pantry items cannot make a realistic recipe, return JSON with this shape 
       },
     ],
     response_format: { type: 'json_object' },
-    temperature: 0.7,
+    temperature: 0.2,
     max_tokens: 600,
   };
 
@@ -324,7 +393,13 @@ If the pantry items cannot make a realistic recipe, return JSON with this shape 
 
     if (!parsedRecipe.canMakeRecipe) {
       return res.status(422).json({
-        error: parsedRecipe.reason || 'Could not generate a realistic recipe. Please try adding more compatible ingredients.',
+        error: parsedRecipe.reason || INCOMPATIBLE_RECIPE_ERROR,
+      });
+    }
+
+    if (hasObviousIncompatiblePairing(parsedRecipe)) {
+      return res.status(422).json({
+        error: INCOMPATIBLE_RECIPE_ERROR,
       });
     }
 
