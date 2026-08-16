@@ -6,6 +6,100 @@ import { randomUUID } from 'crypto';
 const MIN_RECIPE_ITEMS = 5;
 const OPENAI_MODEL = process.env.OPENAI_RECIPE_MODEL || 'gpt-4o-mini';
 const INCOMPATIBLE_RECIPE_ERROR = 'Could not generate a realistic recipe. Please try adding more compatible ingredients.';
+const INVENTED_INGREDIENT_ERROR = 'Could not generate a recipe using only your pantry items. Please add more ingredients and try again.';
+
+const MEASUREMENT_WORDS = new Set([
+  'bag',
+  'bags',
+  'bottle',
+  'bottles',
+  'box',
+  'boxes',
+  'can',
+  'cans',
+  'clove',
+  'cloves',
+  'cup',
+  'cups',
+  'dash',
+  'dashes',
+  'drained',
+  'for',
+  'g',
+  'garnish',
+  'gram',
+  'grams',
+  'kg',
+  'lb',
+  'lbs',
+  'liter',
+  'liters',
+  'ml',
+  'oz',
+  'ounce',
+  'ounces',
+  'piece',
+  'pieces',
+  'pinch',
+  'pinches',
+  'sliced',
+  'small',
+  'tablespoon',
+  'tablespoons',
+  'tbsp',
+  'teaspoon',
+  'teaspoons',
+  'to',
+  'taste',
+  'tsp',
+]);
+
+const PANTRY_DESCRIPTOR_WORDS = new Set([
+  'canned',
+  'fresh',
+  'frozen',
+]);
+
+const ALLOWED_SEASONING_WORDS = new Set([
+  'allspice',
+  'basil',
+  'bay',
+  'cardamom',
+  'cayenne',
+  'chili',
+  'chive',
+  'cilantro',
+  'cinnamon',
+  'clove',
+  'coriander',
+  'cumin',
+  'curry',
+  'dill',
+  'flake',
+  'flakes',
+  'garam',
+  'ginger',
+  'herb',
+  'herbs',
+  'leaf',
+  'masala',
+  'mint',
+  'nutmeg',
+  'oregano',
+  'paprika',
+  'parsley',
+  'pepper',
+  'powder',
+  'red',
+  'rosemary',
+  'sage',
+  'salt',
+  'seasoning',
+  'spice',
+  'spices',
+  'thyme',
+  'turmeric',
+]);
 
 interface PantryItemInput {
   name: string;
@@ -140,6 +234,73 @@ const formatPantryItems = (items: PantryItemInput[]) =>
 
 const containsAny = (text: string, terms: string[]) =>
   terms.some((term) => new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}s?\\b`, 'i').test(text));
+
+const singularizeToken = (token: string) => {
+  if (token.endsWith('ies') && token.length > 4) {
+    return `${token.slice(0, -3)}y`;
+  }
+
+  if ((/(ches|shes|xes|zes|ses)$/).test(token) && token.length > 4) {
+    return token.slice(0, -2);
+  }
+
+  if (token.endsWith('oes') && token.length > 4) {
+    return token.slice(0, -2);
+  }
+
+  if (token.endsWith('s') && !token.endsWith('ss') && token.length > 3) {
+    return token.slice(0, -1);
+  }
+
+  return token;
+};
+
+const getIngredientTokens = (text: string, options: { removePantryDescriptors?: boolean } = {}) =>
+  text
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^a-z\s]/g, ' ')
+    .split(/\s+/)
+    .map(singularizeToken)
+    .filter((token) =>
+      token &&
+      token !== 'and' &&
+      !MEASUREMENT_WORDS.has(token) &&
+      (!options.removePantryDescriptors || !PANTRY_DESCRIPTOR_WORDS.has(token))
+    );
+
+const recipeIngredientIsAllowed = (ingredient: string, pantryItems: PantryItemInput[]) => {
+  const ingredientTokens = getIngredientTokens(ingredient);
+
+  if (ingredientTokens.length === 0) {
+    return true;
+  }
+
+  if (ingredientTokens.every((token) => ALLOWED_SEASONING_WORDS.has(token))) {
+    return true;
+  }
+
+  return pantryItems.some((item) => {
+    const pantryTokens = getIngredientTokens(item.name, { removePantryDescriptors: true });
+
+    if (pantryTokens.length === 0) {
+      return false;
+    }
+
+    const ingredientTokenSet = new Set(ingredientTokens);
+    const pantryTokenSet = new Set(pantryTokens);
+
+    if (pantryTokens.every((token) => ingredientTokenSet.has(token))) {
+      return true;
+    }
+
+    return ingredientTokens.every((token) => pantryTokenSet.has(token));
+  });
+};
+
+const getInventedIngredients = (recipe: RecipeCandidate, pantryItems: PantryItemInput[]) =>
+  recipe.ingredients.filter((ingredient) => !recipeIngredientIsAllowed(ingredient, pantryItems));
 
 const hasObviousIncompatiblePairing = (recipe: RecipeCandidate) => {
   const recipeText = [
@@ -334,7 +495,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
 Rules:
 - A valid recipe must use at least 3 compatible pantry items from the list.
-- Basic staples like water, salt, pepper, and oil do not count toward the 3 compatible pantry items.
+- The ingredients list must only include pantry items from the list, plus salt, pepper, dried herbs, or spices.
+- Do not add bread, oil, butter, milk, eggs, flour, sugar, sauces, garnishes, or any other ingredient unless it appears in the pantry list.
 - Do not combine ingredients that clash just because they are present.
 - Ignore unrelated snack, candy, dessert, or fruit ingredients when they do not fit the main dish.
 - Do not add a separate dessert or side just to use an incompatible ingredient.
@@ -400,6 +562,15 @@ If the pantry items cannot make a realistic recipe, return JSON with this shape 
     if (hasObviousIncompatiblePairing(parsedRecipe)) {
       return res.status(422).json({
         error: INCOMPATIBLE_RECIPE_ERROR,
+      });
+    }
+
+    const inventedIngredients = getInventedIngredients(parsedRecipe, validPantryItems);
+
+    if (inventedIngredients.length > 0) {
+      console.warn('Recipe included ingredients outside pantry', inventedIngredients);
+      return res.status(422).json({
+        error: INVENTED_INGREDIENT_ERROR,
       });
     }
 
